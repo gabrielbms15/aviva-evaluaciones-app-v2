@@ -7,10 +7,10 @@ import {
   ActivityIndicator,
   Pressable,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { supabase } from '../../supabase';
 import type { ColaboradoresParamList } from '../navigation/types';
+import ScreenLayout from '../components/ScreenLayout';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TIPOS
@@ -184,8 +184,7 @@ export default function EvaluadosScreen({ sedeId, sedeNombre, onNavigateToEvalua
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <StatusBar style="light" />
+    <ScreenLayout>
       <View style={styles.container}>
         <View style={styles.header}>
           <Text style={styles.headerSubtitle}>SEDE {sedeNombre}</Text>
@@ -231,7 +230,7 @@ export default function EvaluadosScreen({ sedeId, sedeNombre, onNavigateToEvalua
           />
         )}
       </View>
-    </SafeAreaView>
+    </ScreenLayout>
   );
 }
 
@@ -240,7 +239,6 @@ export default function EvaluadosScreen({ sedeId, sedeNombre, onNavigateToEvalua
 // ─────────────────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: '#0F0F12' },
   container: { flex: 1 },
   header: { paddingTop: 16, paddingHorizontal: 24, paddingBottom: 16 },
   headerSubtitle: {

@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
+import ScreenLayout from '../components/ScreenLayout';
 
 interface Props {
   sedeNombre: string;
@@ -9,7 +9,7 @@ interface Props {
 
 export default function ReportesScreen({ sedeNombre }: Props) {
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <ScreenLayout>
       <StatusBar style="light" />
       <View style={styles.container}>
         <View style={styles.header}>
@@ -20,16 +20,15 @@ export default function ReportesScreen({ sedeNombre }: Props) {
           <Text style={styles.comingSoonIcon}>📊</Text>
           <Text style={styles.comingSoonTitle}>Próximamente</Text>
           <Text style={styles.comingSoonBody}>
-            Los reportes y análisis de prevalencias estarán disponibles en una próxima versión.
+            El módulo de reportes y estadísticas estará disponible en una próxima versión.
           </Text>
         </View>
       </View>
-    </SafeAreaView>
+    </ScreenLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: '#0F0F12' },
   container: { flex: 1 },
   header: { paddingTop: 16, paddingHorizontal: 24, paddingBottom: 16 },
   headerSubtitle: {

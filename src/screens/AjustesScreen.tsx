@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
+import ScreenLayout from '../components/ScreenLayout';
 
 interface Props {
   sedeNombre: string;
@@ -9,8 +9,7 @@ interface Props {
 
 export default function AjustesScreen({ sedeNombre }: Props) {
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <StatusBar style="light" />
+    <ScreenLayout>
       <View style={styles.container}>
         <View style={styles.header}>
           <Text style={styles.headerSubtitle}>SEDE {sedeNombre}</Text>
@@ -24,12 +23,11 @@ export default function AjustesScreen({ sedeNombre }: Props) {
           </Text>
         </View>
       </View>
-    </SafeAreaView>
+    </ScreenLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: '#0F0F12' },
   container: { flex: 1 },
   header: { paddingTop: 16, paddingHorizontal: 24, paddingBottom: 16 },
   headerSubtitle: {

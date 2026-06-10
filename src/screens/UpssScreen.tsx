@@ -8,11 +8,13 @@ import {
   Pressable,
   TextInput,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { supabase } from '../../supabase';
 import type { ColaboradoresParamList } from '../navigation/types';
+import ScreenLayout from '../components/ScreenLayout';
+import { Ionicons } from '@expo/vector-icons';
+import { colors } from '../theme/colors';
 
 type Props = NativeStackScreenProps<ColaboradoresParamList, 'Upss'>;
 
@@ -27,6 +29,41 @@ interface PersonalItem {
   cargo: string | null;
   upssNombre: string;
 }
+
+const formatSedeName = (name: string) => {
+  if (!name) return '';
+  return name
+    .toLowerCase()
+    .trim()
+    .split(/\s+/)
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+};
+
+const formatUpssName = (name: string) => {
+  if (!name) return '';
+  const lower = name.toLowerCase().trim();
+  return lower.charAt(0).toUpperCase() + lower.slice(1);
+};
+
+const getUpssIcon = (name: string) => {
+  const norm = name.toLowerCase().trim();
+  if (norm.includes('consulta')) return 'clipboard-outline';
+  if (norm.includes('emergencia')) return 'alert-circle-outline';
+  if (norm.includes('hospital')) return 'bed-outline';
+  if (norm.includes('quirur') || norm.includes('quirúrgico')) return 'pulse-outline';
+  if (norm.includes('obstet') || norm.includes('obstétrico')) return 'heart-outline';
+  if (norm.includes('esterili') || norm.includes('esterilización')) return 'shield-checkmark-outline';
+  if (norm.includes('sangre')) return 'water-outline';
+  if (norm.includes('endosco')) return 'eye-outline';
+  if (norm.includes('farmacia')) return 'medkit-outline';
+  if (norm.includes('medico') || norm.includes('médicos')) return 'people-outline';
+  if (norm.includes('neonato') || norm.includes('neonatología')) return 'heart-outline';
+  if (norm.includes('nutri') || norm.includes('nutrición')) return 'nutrition-outline';
+  if (norm.includes('uci')) return 'pulse-outline';
+  if (norm.includes('imagen') || norm.includes('imágenes')) return 'image-outline';
+  return 'medical-outline'; // default
+};
 
 const formatName = (fullName: string) => {
   if (!fullName) return '';
@@ -58,7 +95,6 @@ export default function UpssScreen({ route, navigation }: Props) {
       setErrorMsg(null);
 
       try {
-        // Traemos todo el personal activo de la sede con su upss en un solo query
         const { data, error } = await supabase
           .from('personal_prevalencia')
           .select('id, nombre_completo, cargo, upss_id, upss:upss_id(id, nombre)')
@@ -69,7 +105,6 @@ export default function UpssScreen({ route, navigation }: Props) {
         if (error) throw error;
 
         if (data) {
-          // Personal completo para el buscador global (incluye upssNombre para la navegación)
           setFullPersonalList(
             data.map(r => {
               const upss = r.upss as unknown as { id: string; nombre: string } | null;
@@ -82,7 +117,6 @@ export default function UpssScreen({ route, navigation }: Props) {
             })
           );
 
-          // UPSS únicas para la lista de áreas
           const seen = new Set<string>();
           const unique: UpssItem[] = [];
           for (const row of data) {
@@ -106,7 +140,6 @@ export default function UpssScreen({ route, navigation }: Props) {
     fetchData();
   }, [sedeId]);
 
-  // Filtrado local del personal cuando hay texto en el buscador
   const filteredPersonal = useMemo(() => {
     if (searchQuery.trim() === '') return [];
     const q = normalizeText(searchQuery.trim());
@@ -130,15 +163,20 @@ export default function UpssScreen({ route, navigation }: Props) {
       }
     >
       <View style={styles.cardContent}>
-        <Text style={styles.upssName}>{item.nombre}</Text>
-        <Text style={styles.arrow}>›</Text>
+        <View style={styles.leftSection}>
+          <View style={styles.iconCircle}>
+            <Ionicons name={getUpssIcon(item.nombre) as any} size={20} color="#FFFFFF" />
+          </View>
+          <Text style={styles.upssName}>{formatUpssName(item.nombre)}</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
       </View>
     </Pressable>
   );
 
   const renderPersonalItem = ({ item }: { item: PersonalItem }) => (
     <Pressable
-      style={({ pressed }) => [styles.personalCard, pressed && styles.cardPressed]}
+      style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
       onPress={() =>
         navigation.navigate('Evaluacion', {
           personalId: item.id,
@@ -150,33 +188,55 @@ export default function UpssScreen({ route, navigation }: Props) {
         })
       }
     >
-      <Text style={styles.nameText}>{formatName(item.nombre_completo)}</Text>
-      {item.cargo ? <Text style={styles.cargoText}>{item.cargo}</Text> : null}
+      <View style={styles.cardContent}>
+        <View style={styles.leftSection}>
+          <View style={styles.iconCircle}>
+            <Ionicons name="person-outline" size={20} color="#FFFFFF" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.upssName}>{formatName(item.nombre_completo)}</Text>
+            {item.cargo ? <Text style={styles.cargoText}>{item.cargo}</Text> : null}
+            <Text style={styles.upssBadge}>{formatUpssName(item.upssNombre)}</Text>
+          </View>
+        </View>
+        <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
+      </View>
     </Pressable>
   );
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <ScreenLayout>
       <StatusBar style="light" />
       <View style={styles.container}>
         <View style={styles.header}>
-          <Text style={styles.headerSubtitle}>SEDE {sedeNombre}</Text>
           <Text style={styles.headerTitle}>
-            {isSearching ? 'Buscar Personal' : 'Selecciona un Área'}
+            {isSearching ? 'Buscar personal' : 'Seleccionar área'}
           </Text>
+          <View style={styles.sedeContainer}>
+            <Ionicons name="location-sharp" size={16} color="#4B5563" style={styles.locationIcon} />
+            <Text style={styles.headerSubtitle}>
+              Sede {formatSedeName(sedeNombre)}
+            </Text>
+          </View>
         </View>
 
-        {/* Buscador global por sede */}
         <View style={styles.searchContainer}>
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Buscar personal en toda la sede..."
-            placeholderTextColor="#9CA3AF"
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            autoCapitalize="words"
-            clearButtonMode="while-editing"
-          />
+          <View style={styles.searchBarWrapper}>
+            <Text style={styles.searchIcon}>🔍</Text>
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Buscar personal en toda la sede..."
+              placeholderTextColor="#6B7280"
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              autoCapitalize="words"
+            />
+            {searchQuery.length > 0 && (
+              <Pressable onPress={() => setSearchQuery('')} style={styles.clearBtn}>
+                <Text style={styles.clearBtnText}>✕</Text>
+              </Pressable>
+            )}
+          </View>
         </View>
 
         <View style={styles.listContainer}>
@@ -185,7 +245,6 @@ export default function UpssScreen({ route, navigation }: Props) {
           ) : errorMsg ? (
             <Text style={styles.errorText}>{errorMsg}</Text>
           ) : isSearching ? (
-            // Modo búsqueda: muestra personal filtrado
             <FlatList
               data={filteredPersonal}
               keyExtractor={item => item.id}
@@ -199,7 +258,6 @@ export default function UpssScreen({ route, navigation }: Props) {
               }
             />
           ) : (
-            // Modo normal: muestra lista de UPSS
             <FlatList
               data={upssList}
               keyExtractor={item => item.id}
@@ -215,50 +273,66 @@ export default function UpssScreen({ route, navigation }: Props) {
           )}
         </View>
       </View>
-    </SafeAreaView>
+    </ScreenLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: '#0F0F12',
-  },
   container: {
     flex: 1,
   },
   header: {
-    paddingTop: 16,
-    paddingBottom: 12,
+    paddingTop: 24,
+    paddingBottom: 16,
     paddingHorizontal: 24,
-  },
-  headerSubtitle: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#10B981',
-    letterSpacing: 2,
-    marginBottom: 8,
-    textTransform: 'uppercase',
   },
   headerTitle: {
     fontSize: 28,
     fontWeight: '900',
-    color: '#FFFFFF',
+    color: '#000000',
     letterSpacing: -0.5,
+    marginBottom: 6,
+  },
+  sedeContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  locationIcon: {
+    marginRight: 4,
+  },
+  headerSubtitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#4B5563',
   },
   searchContainer: {
     paddingHorizontal: 24,
     paddingBottom: 16,
   },
-  searchInput: {
-    backgroundColor: '#1C1C24',
-    color: '#FFFFFF',
+  searchBarWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#E5E7EB',
     borderRadius: 16,
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingHorizontal: 16,
+  },
+  searchInput: {
+    flex: 1,
+    color: '#1F2937',
+    paddingVertical: 6,
+    fontSize: 12,
+    paddingLeft: 8,
+  },
+  searchIcon: {
     fontSize: 16,
-    borderWidth: 1,
-    borderColor: '#374151',
+  },
+  clearBtn: {
+    padding: 4,
+  },
+  clearBtnText: {
+    color: '#6B7280',
+    fontSize: 14,
+    fontWeight: 'bold',
   },
   listContainer: {
     flex: 1,
@@ -269,11 +343,16 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   card: {
-    backgroundColor: '#1C1C24',
+    backgroundColor: '#FFFFFF',
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#2D2D38',
+    borderColor: '#E5E7EB',
     overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
   },
   cardPressed: {
     opacity: 0.7,
@@ -283,47 +362,56 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: 20,
+    padding: 8,
+  },
+  leftSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    gap: 12,
+  },
+  iconCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.verde1Aviva,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   upssName: {
-    fontSize: 17,
+    fontSize: 13,
     fontWeight: '600',
-    color: '#FFFFFF',
+    color: '#1F2937',
     flex: 1,
   },
-  arrow: {
-    fontSize: 24,
-    color: '#10B981',
-    fontWeight: '300',
-    marginLeft: 12,
-  },
-  personalCard: {
-    backgroundColor: '#1C1C24',
-    padding: 20,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#2D2D38',
-  },
-  nameText: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    marginBottom: 4,
-  },
   cargoText: {
-    fontSize: 14,
-    color: '#9CA3AF',
+    fontSize: 13,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  upssBadge: {
+    fontSize: 11,
+    color: colors.verde1Aviva,
+    fontWeight: '700',
+    marginTop: 4,
+    backgroundColor: 'rgba(93, 202, 165, 0.15)',
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+    overflow: 'hidden',
+  },
+  emptyText: {
+    color: '#6B7280',
+    textAlign: 'center',
+    marginTop: 40,
+    fontSize: 15,
   },
   errorText: {
     color: '#EF4444',
     textAlign: 'center',
-    marginTop: 20,
-    paddingHorizontal: 24,
-  },
-  emptyText: {
-    color: '#9CA3AF',
-    textAlign: 'center',
     marginTop: 40,
-    fontSize: 16,
+    paddingHorizontal: 24,
+    fontSize: 15,
   },
 });

@@ -13,7 +13,9 @@ import {
   Platform,
   Alert,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import ScreenLayout from '../components/ScreenLayout';
+import { colors } from '../theme/colors';
+import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { supabase } from '../../supabase';
@@ -55,8 +57,8 @@ const formatName = (fullName: string) => {
 // Nombre corto para la grid: "Nombre1 Apellido1"
 const shortName = (formattedName: string) => {
   const parts = formattedName.trim().split(' ');
-  if (parts.length >= 3) return `${parts[0]}\n${parts[2]}`;
-  if (parts.length === 2) return `${parts[0]}\n${parts[1]}`;
+  if (parts.length >= 3) return `${parts[0]} ${parts[2]}`;
+  if (parts.length === 2) return `${parts[0]} ${parts[1]}`;
   return parts[0] ?? formattedName;
 };
 
@@ -67,6 +69,41 @@ const capitalize = (text: string | null) => {
 
 const normalizeText = (text: string) =>
   text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+const formatSedeName = (name: string) => {
+  if (!name) return '';
+  return name
+    .toLowerCase()
+    .trim()
+    .split(/\s+/)
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+};
+
+const formatUpssName = (name: string) => {
+  if (!name) return '';
+  const lower = name.toLowerCase().trim();
+  return lower.charAt(0).toUpperCase() + lower.slice(1);
+};
+
+const getUpssIcon = (name: string) => {
+  const norm = name.toLowerCase().trim();
+  if (norm.includes('consulta')) return 'clipboard-outline';
+  if (norm.includes('emergencia')) return 'alert-circle-outline';
+  if (norm.includes('hospital')) return 'bed-outline';
+  if (norm.includes('quirur') || norm.includes('quirúrgico')) return 'pulse-outline';
+  if (norm.includes('obstet') || norm.includes('obstétrico')) return 'heart-outline';
+  if (norm.includes('esterili') || norm.includes('esterilización')) return 'shield-checkmark-outline';
+  if (norm.includes('sangre')) return 'water-outline';
+  if (norm.includes('endosco')) return 'eye-outline';
+  if (norm.includes('farmacia')) return 'medkit-outline';
+  if (norm.includes('medico') || norm.includes('médicos')) return 'people-outline';
+  if (norm.includes('neonato') || norm.includes('neonatología')) return 'heart-outline';
+  if (norm.includes('nutri') || norm.includes('nutrición')) return 'nutrition-outline';
+  if (norm.includes('uci')) return 'pulse-outline';
+  if (norm.includes('imagen') || norm.includes('imágenes')) return 'image-outline';
+  return 'medical-outline'; // default
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // COMPONENTE PRINCIPAL
@@ -234,8 +271,12 @@ export default function SearchPersonalScreen({ route, navigation }: Props) {
           style={({ pressed }) => [styles.gridCell, styles.gridCellAdd, pressed && styles.cellPressed]}
           onPress={abrirModal}
         >
-          <Text style={styles.addIcon}>+</Text>
-          <Text style={styles.addLabel}>Añadir{'\n'}Personal</Text>
+          <View style={styles.addIconCircle}>
+            <Ionicons name="add" size={24} color={colors.verde1Aviva} />
+          </View>
+          <View style={styles.gridCellTextContainer}>
+            <Text style={styles.addLabel}>Añadir Personal</Text>
+          </View>
         </Pressable>
       );
     }
@@ -256,14 +297,19 @@ export default function SearchPersonalScreen({ route, navigation }: Props) {
           })
         }
       >
-        <Text style={styles.gridCellName} numberOfLines={3}>
-          {shortName(formattedFull)}
-        </Text>
-        {cell.cargo ? (
-          <Text style={styles.gridCellCargo} numberOfLines={2}>
-            {capitalize(cell.cargo)}
+        <View style={styles.gridCellIconCircle}>
+          <Ionicons name="person" size={20} color="#FFFFFF" />
+        </View>
+        <View style={styles.gridCellTextContainer}>
+          <Text style={styles.gridCellName} numberOfLines={2}>
+            {shortName(formattedFull)}
           </Text>
-        ) : null}
+          {cell.cargo ? (
+            <Text style={styles.gridCellCargo} numberOfLines={2}>
+              {capitalize(cell.cargo)}
+            </Text>
+          ) : null}
+        </View>
       </Pressable>
     );
   };
@@ -296,27 +342,45 @@ export default function SearchPersonalScreen({ route, navigation }: Props) {
   // ─────────────────────────────────────────────────────────────────────────
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <ScreenLayout>
       <StatusBar style="light" />
       <View style={styles.container}>
 
         {/* ── Header ── */}
         <View style={styles.header}>
-          <Text style={styles.headerSubtitle}>{sedeNombre} · {upssNombre}</Text>
           <Text style={styles.headerTitle}>Personal</Text>
+          <View style={styles.sedeRow}>
+            <Ionicons name="location-sharp" size={16} color="#4B5563" style={styles.headerIcon} />
+            <Text style={styles.headerSubtitle}>
+              Sede {formatSedeName(sedeNombre)}
+            </Text>
+          </View>
+          <View style={styles.upssRow}>
+            <Ionicons name={getUpssIcon(upssNombre) as any} size={16} color="#4B5563" style={styles.headerIcon} />
+            <Text style={styles.headerSubtitle}>
+              {formatUpssName(upssNombre)}
+            </Text>
+          </View>
         </View>
 
         {/* ── Buscador ── */}
         <View style={styles.searchContainer}>
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Buscar por nombre..."
-            placeholderTextColor="#9CA3AF"
-            value={searchQuery}
-            onChangeText={text => { setSearchQuery(text); setCurrentPage(0); }}
-            autoCapitalize="words"
-            clearButtonMode="while-editing"
-          />
+          <View style={styles.searchBarWrapper}>
+            <Text style={styles.searchIcon}>🔍</Text>
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Buscar por nombre..."
+              placeholderTextColor="#6B7280"
+              value={searchQuery}
+              onChangeText={text => { setSearchQuery(text); setCurrentPage(0); }}
+              autoCapitalize="words"
+            />
+            {searchQuery.length > 0 && (
+              <Pressable onPress={() => setSearchQuery('')} style={styles.clearBtn}>
+                <Text style={styles.clearBtnText}>✕</Text>
+              </Pressable>
+            )}
+          </View>
         </View>
 
         {loading ? (
@@ -441,7 +505,7 @@ export default function SearchPersonalScreen({ route, navigation }: Props) {
                   disabled={submitting}
                 >
                   {submitting
-                    ? <ActivityIndicator color="#000" size="small" />
+                    ? <ActivityIndicator color="#FFFFFF" size="small" />
                     : <Text style={styles.modalBtnPrimaryText}>Guardar</Text>
                   }
                 </Pressable>
@@ -488,7 +552,7 @@ export default function SearchPersonalScreen({ route, navigation }: Props) {
           </View>
         </Pressable>
       </Modal>
-    </SafeAreaView>
+    </ScreenLayout>
   );
 }
 
@@ -497,21 +561,66 @@ export default function SearchPersonalScreen({ route, navigation }: Props) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: '#0F0F12' },
   container: { flex: 1 },
 
-  header: { paddingTop: 16, paddingBottom: 8, paddingHorizontal: 24 },
-  headerSubtitle: {
-    fontSize: 12, fontWeight: '800', color: '#10B981',
-    letterSpacing: 2, marginBottom: 6, textTransform: 'uppercase',
+  header: {
+    paddingTop: 24,
+    paddingBottom: 16,
+    paddingHorizontal: 24,
   },
-  headerTitle: { fontSize: 28, fontWeight: '900', color: '#FFFFFF', letterSpacing: -0.5 },
+  headerTitle: {
+    fontSize: 28,
+    fontWeight: '900',
+    color: '#000000',
+    letterSpacing: -0.5,
+    marginBottom: 6,
+  },
+  sedeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  upssRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerIcon: {
+    marginRight: 6,
+  },
+  headerSubtitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#4B5563',
+  },
 
-  searchContainer: { paddingHorizontal: 24, paddingBottom: 16 },
+  searchContainer: {
+    paddingHorizontal: 24,
+    paddingBottom: 16,
+  },
+  searchBarWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#E5E7EB',
+    borderRadius: 16,
+    paddingHorizontal: 16,
+  },
   searchInput: {
-    backgroundColor: '#1C1C24', color: '#FFFFFF', borderRadius: 16,
-    paddingHorizontal: 20, paddingVertical: 14, fontSize: 16,
-    borderWidth: 1, borderColor: '#374151',
+    flex: 1,
+    color: '#1F2937',
+    paddingVertical: 6,
+    fontSize: 12,
+    paddingLeft: 8,
+  },
+  searchIcon: {
+    fontSize: 16,
+  },
+  clearBtn: {
+    padding: 4,
+  },
+  clearBtnText: {
+    color: '#6B7280',
+    fontSize: 14,
+    fontWeight: 'bold',
   },
 
   // ── Grid ──
@@ -519,34 +628,72 @@ const styles = StyleSheet.create({
   gridRow: { flexDirection: 'row', gap: 12, marginBottom: 12 },
   gridCell: {
     flex: 1,
-    backgroundColor: '#1C1C24',
+    backgroundColor: '#FFFFFF',
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: '#2D2D38',
-    padding: 16,
-    minHeight: 110,
-    justifyContent: 'center',
+    borderColor: '#E5E7EB',
+    padding: 10,
+    minHeight: 76,
+    flexDirection: 'row',
     alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
   },
   gridCellEmpty: {
     flex: 1,
-    minHeight: 110,
+    minHeight: 76,
     backgroundColor: 'transparent',
   },
   gridCellAdd: {
-    borderStyle: 'dashed',
-    borderColor: '#10B981',
-    backgroundColor: 'rgba(16,185,129,0.06)',
+    borderColor: 'rgba(93, 202, 165, 0.4)',
+    backgroundColor: 'rgba(93, 202, 165, 0.08)',
+    elevation: 0,
+    shadowOpacity: 0,
   },
   cellPressed: { opacity: 0.7, transform: [{ scale: 0.97 }] },
-  addIcon: { fontSize: 28, color: '#10B981', fontWeight: '300', marginBottom: 4 },
-  addLabel: { fontSize: 13, color: '#10B981', fontWeight: '700', textAlign: 'center' },
+  addIconCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(93, 202, 165, 0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  addLabel: {
+    fontSize: 13,
+    color: colors.verde1Aviva,
+    fontWeight: '700',
+    textAlign: 'left',
+  },
+  gridCellIconCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.verde1AvivaLight,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  gridCellTextContainer: {
+    flex: 1,
+    marginLeft: 8,
+    justifyContent: 'center',
+  },
   gridCellName: {
-    fontSize: 15, fontWeight: '800', color: '#FFFFFF',
-    textAlign: 'center', marginBottom: 4, lineHeight: 20,
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#1F2937',
+    textAlign: 'left',
+    lineHeight: 14,
+    marginBottom: 2,
   },
   gridCellCargo: {
-    fontSize: 11, color: '#9CA3AF', textAlign: 'center', lineHeight: 15,
+    fontSize: 10.5,
+    color: '#6B7280',
+    textAlign: 'left',
+    lineHeight: 14,
   },
 
   // ── Paginación ──
@@ -556,92 +703,102 @@ const styles = StyleSheet.create({
   },
   pageBtn: {
     width: 44, height: 44, borderRadius: 12,
-    backgroundColor: '#1C1C24', borderWidth: 1, borderColor: '#2D2D38',
+    backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E5E7EB',
     justifyContent: 'center', alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
   },
   pageBtnDisabled: { opacity: 0.3 },
-  pageArrow: { fontSize: 26, color: '#10B981', lineHeight: 30 },
-  pageLabel: { color: '#9CA3AF', fontSize: 15, fontWeight: '600' },
+  pageArrow: { fontSize: 26, color: colors.verde1Aviva, lineHeight: 30 },
+  pageLabel: { color: '#4B5563', fontSize: 15, fontWeight: '600' },
 
   // ── Lista búsqueda ──
   listContent: { paddingHorizontal: 24, paddingBottom: 40, gap: 12 },
   listCard: {
-    backgroundColor: '#1C1C24', padding: 18, borderRadius: 16,
-    borderWidth: 1, borderColor: '#2D2D38',
+    backgroundColor: '#FFFFFF', padding: 18, borderRadius: 16,
+    borderWidth: 1, borderColor: '#E5E7EB',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
   },
-  listCardName: { fontSize: 17, fontWeight: '700', color: '#FFFFFF', marginBottom: 2 },
-  listCardCargo: { fontSize: 13, color: '#9CA3AF' },
+  listCardName: { fontSize: 17, fontWeight: '700', color: '#1F2937', marginBottom: 2 },
+  listCardCargo: { fontSize: 13, color: '#6B7280' },
 
   errorText: { color: '#EF4444', textAlign: 'center', marginTop: 20, paddingHorizontal: 24 },
-  emptyText: { color: '#9CA3AF', textAlign: 'center', marginTop: 40, fontSize: 16 },
+  emptyText: { color: '#6B7280', textAlign: 'center', marginTop: 40, fontSize: 16 },
 
   // ── Modal Añadir Personal ──
   modalOverlay: {
-    flex: 1, backgroundColor: 'rgba(0,0,0,0.7)',
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'flex-end',
   },
   modalSheet: {
-    backgroundColor: '#151519', borderTopLeftRadius: 24, borderTopRightRadius: 24,
-    borderWidth: 1, borderBottomWidth: 0, borderColor: '#2D2D38',
+    backgroundColor: '#FFFFFF', borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    borderWidth: 1, borderBottomWidth: 0, borderColor: '#E5E7EB',
     maxHeight: '85%',
   },
   modalHeader: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 24, paddingVertical: 20,
-    borderBottomWidth: 1, borderBottomColor: '#2D2D38',
+    borderBottomWidth: 1, borderBottomColor: '#E5E7EB',
   },
-  modalTitle: { fontSize: 20, fontWeight: '800', color: '#FFFFFF' },
+  modalTitle: { fontSize: 20, fontWeight: '800', color: '#1F2937' },
   modalCloseBtn: { padding: 4 },
   modalCloseText: { fontSize: 18, color: '#6B7280' },
   modalBody: { padding: 24, gap: 4 },
 
-  fieldLabel: { color: '#9CA3AF', fontSize: 13, fontWeight: '600', marginBottom: 6, marginTop: 12 },
+  fieldLabel: { color: '#4B5563', fontSize: 13, fontWeight: '600', marginBottom: 6, marginTop: 12 },
   fieldInput: {
-    backgroundColor: '#1C1C24', color: '#FFFFFF', borderRadius: 14,
+    backgroundColor: '#F3F4F6', color: '#1F2937', borderRadius: 14,
     paddingHorizontal: 16, paddingVertical: 14, fontSize: 15,
-    borderWidth: 1, borderColor: '#374151',
+    borderWidth: 1, borderColor: '#E5E7EB',
   },
-  fieldHint: { color: '#4B5563', fontSize: 11, marginTop: 4 },
+  fieldHint: { color: '#6B7280', fontSize: 11, marginTop: 4 },
   fieldSelector: {
-    backgroundColor: '#1C1C24', borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14,
-    borderWidth: 1, borderColor: '#374151', flexDirection: 'row',
+    backgroundColor: '#F3F4F6', borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14,
+    borderWidth: 1, borderColor: '#E5E7EB', flexDirection: 'row',
     alignItems: 'center', justifyContent: 'space-between',
   },
-  fieldSelectorPlaceholder: { color: '#6B7280', fontSize: 15 },
-  fieldSelectorValue: { color: '#FFFFFF', fontSize: 15, fontWeight: '600' },
-  fieldSelectorArrow: { color: '#10B981', fontSize: 20 },
+  fieldSelectorPlaceholder: { color: '#9CA3AF', fontSize: 15 },
+  fieldSelectorValue: { color: '#1F2937', fontSize: 15, fontWeight: '600' },
+  fieldSelectorArrow: { color: colors.verde1Aviva, fontSize: 20 },
   modalBtnRow: { flexDirection: 'row', gap: 12, marginTop: 28 },
   modalBtnSecondary: {
-    flex: 1, borderWidth: 1, borderColor: '#374151',
+    flex: 1, borderWidth: 1, borderColor: '#D1D5DB',
     borderRadius: 14, paddingVertical: 16, alignItems: 'center',
   },
-  modalBtnSecondaryText: { color: '#9CA3AF', fontWeight: '700', fontSize: 16 },
+  modalBtnSecondaryText: { color: '#4B5563', fontWeight: '700', fontSize: 16 },
   modalBtnPrimary: {
-    flex: 2, backgroundColor: '#10B981', borderRadius: 14,
+    flex: 2, backgroundColor: colors.verde1Aviva, borderRadius: 14,
     paddingVertical: 16, alignItems: 'center',
-    shadowColor: '#10B981', shadowOffset: { width: 0, height: 4 },
+    shadowColor: colors.verde1Aviva, shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3, shadowRadius: 8, elevation: 6,
   },
-  modalBtnPrimaryText: { color: '#000', fontWeight: '800', fontSize: 16 },
+  modalBtnPrimaryText: { color: '#FFFFFF', fontWeight: '800', fontSize: 16 },
 
   // ── Selector Grupo Profesional ──
   pickerSheet: {
-    backgroundColor: '#151519', borderTopLeftRadius: 24, borderTopRightRadius: 24,
-    borderWidth: 1, borderBottomWidth: 0, borderColor: '#2D2D38',
+    backgroundColor: '#FFFFFF', borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    borderWidth: 1, borderBottomWidth: 0, borderColor: '#E5E7EB',
     maxHeight: '60%', paddingBottom: 24,
   },
   pickerTitle: {
-    fontSize: 17, fontWeight: '800', color: '#FFFFFF',
+    fontSize: 17, fontWeight: '800', color: '#1F2937',
     textAlign: 'center', paddingVertical: 18,
-    borderBottomWidth: 1, borderBottomColor: '#2D2D38',
+    borderBottomWidth: 1, borderBottomColor: '#E5E7EB',
   },
   pickerItem: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 24, paddingVertical: 16,
-    borderBottomWidth: 1, borderBottomColor: '#1C1C24',
+    borderBottomWidth: 1, borderBottomColor: '#F3F4F6',
   },
-  pickerItemSelected: { backgroundColor: 'rgba(16,185,129,0.1)' },
-  pickerItemText: { color: '#E5E7EB', fontSize: 16 },
-  pickerItemTextSelected: { color: '#10B981', fontWeight: '700' },
-  pickerCheck: { color: '#10B981', fontSize: 18, fontWeight: '700' },
+  pickerItemSelected: { backgroundColor: 'rgba(93, 202, 165, 0.1)' },
+  pickerItemText: { color: '#374151', fontSize: 16 },
+  pickerItemTextSelected: { color: colors.verde1Aviva, fontWeight: '700' },
+  pickerCheck: { color: colors.verde1Aviva, fontSize: 18, fontWeight: '700' },
 });
