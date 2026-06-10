@@ -90,13 +90,113 @@ export default function EvaluacionScreen({ route, navigation }: Props) {
   const [guardando, setGuardando] = useState(false);
 
   // ─────────────────────────────────────────────────────────────────────────
+  // FUNCIONES DE CARGA (Definidas antes del useEffect para evitar problemas de hoisting)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  // Carga los set_preguntas con sus preguntas activas
+  const cargarSetsConPreguntas = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('set_preguntas')
+      .select('id, nombre, orden, pregunta(id, texto, orden, activa)')
+      .eq('activo', true)
+      .order('orden');
+
+    if (error) throw error;
+
+    const formatted: SetConPreguntas[] = (data ?? []).map((s: any) => ({
+      set_id: s.id,
+      nombre: s.nombre,
+      orden: s.orden,
+      preguntas: (s.pregunta ?? [])
+        .filter((p: any) => p.activa)
+        .sort((a: any, b: any) => a.orden - b.orden),
+    }));
+
+    setSetsConPreguntas(formatted);
+    setCurrentSetIndex(0);
+    setEstado('evaluando');
+  }, []);
+
+  const cargarEvaluacionExistente = useCallback(async (epId: string) => {
+    setEstado('iniciando');
+    try {
+      // Cargar los evaluacion_set existentes
+      const { data: evSets, error: errEvSets } = await supabase
+        .from('evaluacion_set')
+        .select('id, set_id, estado')
+        .eq('evaluacion_personal_id', epId);
+
+      if (errEvSets) throw errEvSets;
+      setEvaluacionSets((evSets ?? []) as EvaluacionSetLocal[]);
+
+      // Cargar las respuestas ya guardadas
+      const evSetIds = (evSets ?? []).map((es: any) => es.id);
+      if (evSetIds.length > 0) {
+        const { data: respExistentes, error: errResp } = await supabase
+          .from('respuesta')
+          .select('pregunta_id, valor')
+          .in('evaluacion_set_id', evSetIds);
+
+        if (errResp) throw errResp;
+
+        const respMap: Record<string, ValorRespuesta> = {};
+        (respExistentes ?? []).forEach((r: any) => {
+          respMap[r.pregunta_id] = r.valor as ValorRespuesta;
+        });
+        setRespuestas(respMap);
+      }
+
+      // Cargar sets con preguntas
+      const { data, error } = await supabase
+        .from('set_preguntas')
+        .select('id, nombre, orden, pregunta(id, texto, orden, activa)')
+        .eq('activo', true)
+        .order('orden');
+
+      if (error) throw error;
+
+      const formatted: SetConPreguntas[] = (data ?? []).map((s: any) => ({
+        set_id: s.id,
+        nombre: s.nombre,
+        orden: s.orden,
+        preguntas: (s.pregunta ?? [])
+          .filter((p: any) => p.activa)
+          .sort((a: any, b: any) => a.orden - b.orden),
+      }));
+
+      setSetsConPreguntas(formatted);
+
+      // Posicionar en el primer set pendiente
+      const primerPendienteIdx = (evSets ?? []).findIndex(
+        (es: any) => es.estado === 'pendiente'
+      );
+      setCurrentSetIndex(primerPendienteIdx >= 0 ? primerPendienteIdx : 0);
+      setEstado('evaluando');
+    } catch (err: any) {
+      console.error('Error al cargar evaluación existente:', err);
+      Alert.alert('Error', err.message || 'No se pudo cargar la evaluación.');
+      navigation.goBack();
+    }
+  }, [navigation]);
+
+  // ─────────────────────────────────────────────────────────────────────────
   // FASE 1: Verificar proceso activo y evaluación previa
   // ─────────────────────────────────────────────────────────────────────────
 
   useEffect(() => {
+    let mounted = true;
+
     const verificar = async () => {
+      // Resetear estados al cambiar de personal
+      setEstado('loading');
+      setProcesoId(null);
+      setEvaluacionPersonalId(null);
+      setSetsConPreguntas([]);
+      setEvaluacionSets([]);
+      setRespuestas({});
+      setCurrentSetIndex(0);
+
       try {
-        // 1a. Buscar proceso activo para esta sede
         const { data: procesos, error: errProceso } = await supabase
           .from('proceso_prevalencia')
           .select('id')
@@ -106,6 +206,8 @@ export default function EvaluacionScreen({ route, navigation }: Props) {
 
         if (errProceso) throw errProceso;
 
+        if (!mounted) return;
+
         if (!procesos || procesos.length === 0) {
           setEstado('no_proceso');
           return;
@@ -114,7 +216,6 @@ export default function EvaluacionScreen({ route, navigation }: Props) {
         const pid = procesos[0].id;
         setProcesoId(pid);
 
-        // 1b. Verificar si el personal ya fue evaluado en este proceso
         const { data: evalExistente, error: errEval } = await supabase
           .from('evaluacion_personal')
           .select('id')
@@ -123,27 +224,31 @@ export default function EvaluacionScreen({ route, navigation }: Props) {
 
         if (errEval) throw errEval;
 
+        if (!mounted) return;
+
         if (evalExistente && evalExistente.length > 0) {
-          // Ya tiene evaluación: cargarla con sus respuestas existentes
-          // TODO(auth): Cuando se active RLS, verificar que el evaluador autenticado
-          // tiene permisos para ver esta evaluación antes de cargarla.
           const epId = evalExistente[0].id;
           setEvaluacionPersonalId(epId);
           await cargarEvaluacionExistente(epId);
           return;
         }
 
-        // No hay evaluación previa → mostrar pantalla de confirmación
         setEstado('confirmar');
       } catch (err: any) {
         console.error('Error en verificación:', err);
-        Alert.alert('Error', err.message || 'Error al verificar el proceso activo.');
-        navigation.goBack();
+        if (mounted) {
+          Alert.alert('Error', err.message || 'Error al verificar el proceso activo.');
+          navigation.goBack();
+        }
       }
     };
 
     verificar();
-  }, [personalId, sedeId]);
+
+    return () => {
+      mounted = false;
+    };
+  }, [personalId, sedeId, cargarEvaluacionExistente, navigation]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // FASE 2: Iniciar evaluación (crear registros en BD)
@@ -206,96 +311,7 @@ export default function EvaluacionScreen({ route, navigation }: Props) {
     }
   }, [procesoId, personalId]);
 
-  // Carga los set_preguntas con sus preguntas activas (un solo query)
-  const cargarSetsConPreguntas = async () => {
-    const { data, error } = await supabase
-      .from('set_preguntas')
-      .select('id, nombre, orden, pregunta(id, texto, orden, activa)')
-      .eq('activo', true)
-      .order('orden');
 
-    if (error) throw error;
-
-    const formatted: SetConPreguntas[] = (data ?? []).map((s: any) => ({
-      set_id: s.id,
-      nombre: s.nombre,
-      orden: s.orden,
-      preguntas: (s.pregunta ?? [])
-        .filter((p: any) => p.activa)
-        .sort((a: any, b: any) => a.orden - b.orden),
-    }));
-
-    setSetsConPreguntas(formatted);
-    setCurrentSetIndex(0);
-    setEstado('evaluando');
-  };
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // FASE 2b: Cargar evaluación existente (personal ya evaluado)
-  // ─────────────────────────────────────────────────────────────────────────
-
-  const cargarEvaluacionExistente = async (epId: string) => {
-    setEstado('iniciando');
-    try {
-      // Cargar los evaluacion_set existentes (ya creados en la evaluación previa)
-      const { data: evSets, error: errEvSets } = await supabase
-        .from('evaluacion_set')
-        .select('id, set_id, estado')
-        .eq('evaluacion_personal_id', epId);
-
-      if (errEvSets) throw errEvSets;
-      setEvaluacionSets((evSets ?? []) as EvaluacionSetLocal[]);
-
-      // Cargar las respuestas ya guardadas en todos los sets completados
-      const evSetIds = (evSets ?? []).map((es: any) => es.id);
-      if (evSetIds.length > 0) {
-        const { data: respExistentes, error: errResp } = await supabase
-          .from('respuesta')
-          .select('pregunta_id, valor')
-          .in('evaluacion_set_id', evSetIds);
-
-        if (errResp) throw errResp;
-
-        // Pre-cargar todas las respuestas existentes en el estado local
-        const respMap: Record<string, ValorRespuesta> = {};
-        (respExistentes ?? []).forEach((r: any) => {
-          respMap[r.pregunta_id] = r.valor as ValorRespuesta;
-        });
-        setRespuestas(respMap);
-      }
-
-      // Cargar sets con preguntas (sin resetear las respuestas pre-cargadas)
-      const { data, error } = await supabase
-        .from('set_preguntas')
-        .select('id, nombre, orden, pregunta(id, texto, orden, activa)')
-        .eq('activo', true)
-        .order('orden');
-
-      if (error) throw error;
-
-      const formatted: SetConPreguntas[] = (data ?? []).map((s: any) => ({
-        set_id: s.id,
-        nombre: s.nombre,
-        orden: s.orden,
-        preguntas: (s.pregunta ?? [])
-          .filter((p: any) => p.activa)
-          .sort((a: any, b: any) => a.orden - b.orden),
-      }));
-
-      setSetsConPreguntas(formatted);
-
-      // Posicionar en el primer set pendiente (si existe)
-      const primerPendienteIdx = (evSets ?? []).findIndex(
-        (es: any) => es.estado === 'pendiente'
-      );
-      setCurrentSetIndex(primerPendienteIdx >= 0 ? primerPendienteIdx : 0);
-      setEstado('evaluando');
-    } catch (err: any) {
-      console.error('Error al cargar evaluación existente:', err);
-      Alert.alert('Error', err.message || 'No se pudo cargar la evaluación.');
-      navigation.goBack();
-    }
-  };
 
   // ─────────────────────────────────────────────────────────────────────────
   // FASE 3: Guardar respuestas del set actual
@@ -410,25 +426,7 @@ export default function EvaluacionScreen({ route, navigation }: Props) {
     );
   }
 
-  if (estado === 'ya_evaluado') {
-    return (
-      <SafeAreaView style={styles.safeArea}>
-        <StatusBar style="light" />
-        <View style={styles.centered}>
-          <Text style={styles.errorIcon}>✅</Text>
-          <Text style={styles.errorTitle}>Ya evaluado</Text>
-          <Text style={styles.errorBody}>
-            Este personal ya fue evaluado en el proceso activo.
-          </Text>
-          {/* TODO: Cuando se defina el flujo de re-evaluación / historial, 
-              reemplazar este mensaje por la pantalla correspondiente. */}
-          <Pressable style={styles.btnSecondary} onPress={() => navigation.goBack()}>
-            <Text style={styles.btnSecondaryText}>Retroceder</Text>
-          </Pressable>
-        </View>
-      </SafeAreaView>
-    );
-  }
+
 
   // ─────────────────────────────────────────────────────────────────────────
   // RENDER: pantalla de confirmación
