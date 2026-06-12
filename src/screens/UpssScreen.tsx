@@ -46,7 +46,7 @@ const formatUpssName = (name: string) => {
   return lower.charAt(0).toUpperCase() + lower.slice(1);
 };
 
-const getUpssIcon = (name: string) => {
+export const getUpssIcon = (name: string) => {
   const norm = name.toLowerCase().trim();
   if (norm.includes('consulta')) return 'clipboard-outline';
   if (norm.includes('emergencia')) return 'alert-circle-outline';

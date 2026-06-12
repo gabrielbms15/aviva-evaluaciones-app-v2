@@ -1,8 +1,10 @@
 import React from 'react';
+import { Dimensions } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from './types';
+import { colors } from '../theme/colors';
 
 import ColaboradoresStack from './ColaboradoresStack';
 import EvaluadosScreen from '../screens/EvaluadosScreen';
@@ -38,9 +40,9 @@ const makeEvaluados = (sedeId: string, sedeNombre: string) =>
     );
   };
 
-const makeReportes = (sedeNombre: string) =>
+const makeReportes = (sedeId: string, sedeNombre: string) =>
   function ReportesTab() {
-    return <ReportesScreen sedeNombre={sedeNombre} />;
+    return <ReportesScreen sedeId={sedeId} sedeNombre={sedeNombre} />;
   };
 
 const makeAjustes = (sedeNombre: string) =>
@@ -57,6 +59,7 @@ const makeColaboradores = (sedeId: string, sedeNombre: string) =>
 
 export default function SedeTabs({ route }: Props) {
   const { sedeId, sedeNombre } = route.params;
+  const { width: windowWidth } = Dimensions.get('window');
 
   // Creamos los componentes wrapper una sola vez (evita re-montajes en cada render)
   const EvaluadosTab = React.useMemo(
@@ -68,8 +71,8 @@ export default function SedeTabs({ route }: Props) {
     [sedeId, sedeNombre]
   );
   const ReportesTab = React.useMemo(
-    () => makeReportes(sedeNombre),
-    [sedeNombre]
+    () => makeReportes(sedeId, sedeNombre),
+    [sedeId, sedeNombre]
   );
   const AjustesTab = React.useMemo(
     () => makeAjustes(sedeNombre),
@@ -81,15 +84,23 @@ export default function SedeTabs({ route }: Props) {
       initialRouteName="Colaboradores"
       screenOptions={({ route: tabRoute }) => ({
         headerShown: false,
-        tabBarActiveTintColor: '#10B981',
-        tabBarInactiveTintColor: '#4B5563',
+        tabBarActiveTintColor: colors.verde1AvivaLight,
+        tabBarInactiveTintColor: '#FFFFFF',
         tabBarStyle: {
-          backgroundColor: '#0D0D10',
-          borderTopColor: '#1E1E28',
-          borderTopWidth: 1,
+          backgroundColor: colors.azulOscuroAviva,
+          position: 'absolute',
+          bottom: 24,
+          marginHorizontal: 10,
+          elevation: 8,
+          borderRadius: 24,
           height: 72,
           paddingBottom: 12,
-          paddingTop: 8,
+          paddingTop: 12,
+          borderTopWidth: 0,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: 0.15,
+          shadowRadius: 10,
         },
         tabBarLabelStyle: {
           fontSize: 11,

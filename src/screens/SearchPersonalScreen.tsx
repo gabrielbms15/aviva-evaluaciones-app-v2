@@ -44,22 +44,111 @@ interface GrupoProfesional {
 
 const ITEMS_PER_PAGE = 5; // Celda 1 es siempre "Añadir Personal"
 
-const formatName = (fullName: string) => {
-  if (!fullName) return '';
-  const parts = fullName.trim().split(/\s+/).map(part =>
-    part.charAt(0).toUpperCase() + part.slice(1).toLowerCase()
-  );
-  if (parts.length >= 3) return [...parts.slice(2), ...parts.slice(0, 2)].join(' ');
-  if (parts.length === 2) return `${parts[1]} ${parts[0]}`;
-  return parts.join(' ');
+// ─── Pipeline de nombres ────────────────────────────────────────────────────
+
+/**
+ * Agrupa tokens considerando prefijos compuestos tipo "de".
+ *   ["DE","LA","VEGA"]   → ["DE LA VEGA"]   (de + ≤3 letras + ≥4 letras)
+ *   ["DE","VILLA"]       → ["DE VILLA"]     (de + ≥4 letras)
+ *   ["PEREZ"]            → ["PEREZ"]
+ */
+const groupTokens = (tokens: string[]): string[] => {
+  const segments: string[] = [];
+  let i = 0;
+  while (i < tokens.length) {
+    const token = tokens[i];
+    if (token.toLowerCase() === 'de' && i + 1 < tokens.length) {
+      const next = tokens[i + 1];
+      if (next.length <= 3 && i + 2 < tokens.length) {
+        // "de" + prefijo corto (la/los/del/…) + palabra ≥4 letras → compound de 3 tokens
+        segments.push(`${token} ${next} ${tokens[i + 2]}`);
+        i += 3;
+      } else {
+        // "de" + palabra ≥4 letras → compound de 2 tokens
+        segments.push(`${token} ${next}`);
+        i += 2;
+      }
+    } else {
+      segments.push(token);
+      i += 1;
+    }
+  }
+  return segments;
 };
 
-// Nombre corto para la grid: "Nombre1 Apellido1"
-const shortName = (formattedName: string) => {
-  const parts = formattedName.trim().split(' ');
-  if (parts.length >= 3) return `${parts[0]} ${parts[2]}`;
-  if (parts.length === 2) return `${parts[0]} ${parts[1]}`;
-  return parts[0] ?? formattedName;
+/** Capitaliza cada palabra de un segmento (incluyendo los de "De La Vega"). */
+const capitalizeSegment = (seg: string): string =>
+  seg
+    .split(' ')
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(' ');
+
+interface ParsedName {
+  apellidos: string[]; // segmentos (pueden ser compuestos)
+  nombres: string[];
+}
+
+/**
+ * Parsea `nombre_completo` en BD (formato APELLIDOS primero, todo en mayúsculas).
+ *   1 segmento  → sin apellido, 1 nombre
+ *   2 segmentos → 1 apellido + 1 nombre
+ *   3 segmentos → 2 apellidos + 1 nombre
+ *   ≥4 segmentos → (N-2) apellidos + 2 nombres
+ */
+const parseNombreCompleto = (raw: string): ParsedName => {
+  if (!raw?.trim()) return { apellidos: [], nombres: [] };
+  const tokens = raw.trim().split(/\s+/);
+  const segs = groupTokens(tokens);
+  const N = segs.length;
+  if (N === 1) return { apellidos: [], nombres: [segs[0]] };
+  if (N === 2) return { apellidos: [segs[0]], nombres: [segs[1]] };
+  if (N === 3) return { apellidos: [segs[0], segs[1]], nombres: [segs[2]] };
+  return { apellidos: segs.slice(0, N - 2), nombres: segs.slice(N - 2) };
+};
+
+/**
+ * Formatea para display completo: "Nombre1 Nombre2 Apellido1 Apellido2".
+ * (recibe el valor crudo de BD)
+ */
+const formatName = (raw: string): string => {
+  if (!raw) return '';
+  const { apellidos, nombres } = parseNombreCompleto(raw);
+  return [...nombres, ...apellidos].map(capitalizeSegment).join(' ');
+};
+
+/**
+ * Nombre corto para las cards: "Nombre1 Apellido1" (recibe valor crudo de BD).
+ */
+const shortName = (raw: string): string => {
+  if (!raw) return '';
+  const { apellidos, nombres } = parseNombreCompleto(raw);
+  const n1 = nombres[0] ? capitalizeSegment(nombres[0]) : '';
+  const a1 = apellidos[0] ? capitalizeSegment(apellidos[0]) : '';
+  if (n1 && a1) return `${n1} ${a1}`;
+  return n1 || a1;
+};
+
+/**
+ * Convierte la entrada del usuario (orden natural: NOMBRES APELLIDOS)
+ * al formato de BD (APELLIDOS primero, en MAYÚSCULAS).
+ *   1 seg: NOMBRE1                        → "NOMBRE1"
+ *   2 seg: NOMBRE1 APELLIDO1             → "APELLIDO1 NOMBRE1"
+ *   3 seg: NOMBRE1 APELLIDO1 APELLIDO2   → "APELLIDO1 APELLIDO2 NOMBRE1"
+ *   ≥4 seg: N1 N2 A1 A2 …               → "A1 A2 … N1 N2"
+ */
+const inputToDbFormat = (input: string): string => {
+  if (!input?.trim()) return '';
+  const tokens = input.trim().toUpperCase().split(/\s+/).filter(Boolean);
+  const segs = groupTokens(tokens);
+  const N = segs.length;
+  if (N === 0) return '';
+  if (N === 1) return segs[0];
+  if (N === 2) return `${segs[1]} ${segs[0]}`;
+  if (N === 3) return `${segs[1]} ${segs[2]} ${segs[0]}`;
+  // ≥4: primeros 2 = nombres, resto = apellidos
+  const nombres = segs.slice(0, 2);
+  const apellidos = segs.slice(2);
+  return [...apellidos, ...nombres].join(' ');
 };
 
 const capitalize = (text: string | null) => {
@@ -124,7 +213,7 @@ export default function SearchPersonalScreen({ route, navigation }: Props) {
 
   // ── Modal Añadir Personal ──
   const [modalVisible, setModalVisible] = useState(false);
-  const [grupoPicker, setGrupoPicker] = useState(false); // sub-modal selector
+  const [grupoPicker, setGrupoPicker] = useState(false); // ya no se usa — mantenido por compatibilidad
   const [nuevoNombre, setNuevoNombre] = useState('');
   const [nuevoCargo, setNuevoCargo] = useState('');
   const [selectedGrupo, setSelectedGrupo] = useState<GrupoProfesional | null>(null);
@@ -160,13 +249,14 @@ export default function SearchPersonalScreen({ route, navigation }: Props) {
   }, [fetchPersonal]);
 
   useEffect(() => {
-    // Cargar grupos profesionales (tabla pública, sin RLS)
     supabase
       .from('grupo_profesional')
       .select('id, nombre')
-      .eq('activo', true)
       .order('nombre')
-      .then(({ data }) => { if (data) setGrupoProfesionalList(data); });
+      .then(({ data, error }) => {
+        if (data) setGrupoProfesionalList(data);
+        if (error) console.warn('grupo_profesional error:', error.message);
+      });
   }, []);
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -238,7 +328,7 @@ export default function SearchPersonalScreen({ route, navigation }: Props) {
           sede_id: sedeId,
           upss_id: upssId,
           grupo_profesional_id: selectedGrupo.id,
-          nombre_completo: nuevoNombre.trim().toUpperCase(),
+          nombre_completo: inputToDbFormat(nuevoNombre),
           cargo: nuevoCargo.trim() || null,
           activo: true,
         });
@@ -302,7 +392,7 @@ export default function SearchPersonalScreen({ route, navigation }: Props) {
         </View>
         <View style={styles.gridCellTextContainer}>
           <Text style={styles.gridCellName} numberOfLines={2}>
-            {shortName(formattedFull)}
+            {shortName(cell.nombre_completo)}
           </Text>
           {cell.cargo ? (
             <Text style={styles.gridCellCargo} numberOfLines={2}>
@@ -483,7 +573,19 @@ export default function SearchPersonalScreen({ route, navigation }: Props) {
               <Text style={styles.fieldLabel}>Grupo Profesional *</Text>
               <Pressable
                 style={({ pressed }) => [styles.fieldSelector, pressed && { opacity: 0.7 }]}
-                onPress={() => setGrupoPicker(true)}
+                onPress={() =>
+                  Alert.alert(
+                    'Grupo Profesional',
+                    'Selecciona el grupo profesional:',
+                    [
+                      ...grupoProfesionalList.map(g => ({
+                        text: (selectedGrupo?.id === g.id ? '✓ ' : '') + g.nombre,
+                        onPress: () => setSelectedGrupo(g),
+                      })),
+                      { text: 'Cancelar', style: 'cancel' as const },
+                    ]
+                  )
+                }
               >
                 <Text style={selectedGrupo ? styles.fieldSelectorValue : styles.fieldSelectorPlaceholder}>
                   {selectedGrupo ? selectedGrupo.nombre : 'Seleccionar grupo...'}
@@ -515,43 +617,7 @@ export default function SearchPersonalScreen({ route, navigation }: Props) {
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* ══════════════════════════════════════════════════════════════
-          MODAL: Selector de Grupo Profesional
-      ══════════════════════════════════════════════════════════════ */}
-      <Modal
-        visible={grupoPicker}
-        animationType="slide"
-        transparent
-        onRequestClose={() => setGrupoPicker(false)}
-      >
-        <Pressable style={styles.modalOverlay} onPress={() => setGrupoPicker(false)}>
-          <View style={styles.pickerSheet}>
-            <Text style={styles.pickerTitle}>Grupo Profesional</Text>
-            <FlatList
-              data={grupoProfesionalList}
-              keyExtractor={g => g.id}
-              renderItem={({ item }) => (
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.pickerItem,
-                    selectedGrupo?.id === item.id && styles.pickerItemSelected,
-                    pressed && { opacity: 0.7 },
-                  ]}
-                  onPress={() => { setSelectedGrupo(item); setGrupoPicker(false); }}
-                >
-                  <Text style={[
-                    styles.pickerItemText,
-                    selectedGrupo?.id === item.id && styles.pickerItemTextSelected,
-                  ]}>
-                    {item.nombre}
-                  </Text>
-                  {selectedGrupo?.id === item.id && <Text style={styles.pickerCheck}>✓</Text>}
-                </Pressable>
-              )}
-            />
-          </View>
-        </Pressable>
-      </Modal>
+
     </ScreenLayout>
   );
 }

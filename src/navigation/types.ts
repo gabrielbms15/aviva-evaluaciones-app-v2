@@ -2,6 +2,7 @@
 // Importar desde aquí en todas las pantallas para evitar referencias circulares
 
 export type RootStackParamList = {
+  Login: undefined;
   Sedes: undefined;
   SedeTabs: { sedeId: string; sedeNombre: string };
 };

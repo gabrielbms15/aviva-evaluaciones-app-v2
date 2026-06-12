@@ -13,6 +13,7 @@ import { supabase } from '../../supabase';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/types';
 import ScreenLayout from '../components/ScreenLayout';
+import { Ionicons } from '@expo/vector-icons';
 
 interface SedeItem {
   id: string;
@@ -23,7 +24,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Sedes'>;
 
 const getSedeImage = (nombre: string) => {
   const normalizedName = nombre.toLowerCase().trim();
-  
+
   if (normalizedName.includes('san martin') || normalizedName.includes('san martín')) {
     return require('../../assets/san-martin.webp');
   } else if (normalizedName.includes('lima centro')) {
@@ -31,7 +32,7 @@ const getSedeImage = (nombre: string) => {
   } else if (normalizedName.includes('los olivos') || normalizedName.includes('los-olivos')) {
     return require('../../assets/los-olivos.webp');
   }
-  
+
   return null;
 };
 
@@ -39,23 +40,60 @@ export default function SedesScreen({ navigation }: Props) {
   const [sedeList, setSedeList] = useState<SedeItem[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [procesoActivo, setProcesoActivo] = useState<string | null>(null);
+  const [evaluadorNombre, setEvaluadorNombre] = useState<string | null>(null);
 
   const fetchSedes = async () => {
     try {
       setLoading(true);
       setErrorMsg(null);
 
-      const { data, error } = await supabase
-        .from('sede')
-        .select('id, nombre')
-        .order('nombre', { ascending: true });
+      const [sedesRes, procesoRes, userRes] = await Promise.all([
+        supabase
+          .from('sede')
+          .select('id, nombre')
+          .order('nombre', { ascending: true }),
+        supabase
+          .from('proceso_prevalencia')
+          .select('nombre')
+          .eq('estado', 'activo')
+          .limit(1),
+        supabase.auth.getUser()
+      ]);
 
-      if (error) {
-        throw error;
+      if (sedesRes.error) {
+        throw sedesRes.error;
       }
 
-      if (data) {
-        setSedeList(data);
+      if (sedesRes.data) {
+        setSedeList(sedesRes.data);
+      }
+
+      if (procesoRes.error) {
+        console.error('Error fetching active process:', procesoRes.error);
+      } else if (procesoRes.data && procesoRes.data.length > 0) {
+        setProcesoActivo(procesoRes.data[0].nombre);
+      } else {
+        setProcesoActivo(null);
+      }
+
+      const user = userRes.data?.user;
+      if (user) {
+        const { data: evaluador, error: profileError } = await supabase
+          .from('evaluador_perfil')
+          .select('nombre, apellido')
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+        if (profileError) {
+          console.error('Error fetching profile:', profileError);
+        } else if (evaluador) {
+          setEvaluadorNombre(`${evaluador.nombre} ${evaluador.apellido}`);
+        } else {
+          setEvaluadorNombre(null);
+        }
+      } else {
+        setEvaluadorNombre(null);
       }
     } catch (err: any) {
       console.error('Error fetching Sedes:', err);
@@ -74,8 +112,19 @@ export default function SedesScreen({ navigation }: Props) {
       <StatusBar style="light" />
       <View style={styles.container}>
         <View style={styles.header}>
-          <Text style={styles.headerSubtitle}>AVIVA PREVALENCIAS</Text>
           <Text style={styles.headerTitle}>Selecciona una Sede</Text>
+          {procesoActivo ? (
+            <View style={styles.procesoContainer}>
+              <Ionicons name="clipboard-outline" size={16} color="#374151" style={styles.procesoIcon} />
+              <Text style={styles.procesoText}>{procesoActivo}</Text>
+            </View>
+          ) : null}
+          {evaluadorNombre ? (
+            <View style={styles.procesoContainer}>
+              <Ionicons name="person-outline" size={16} color="#374151" style={styles.procesoIcon} />
+              <Text style={styles.procesoText}>{evaluadorNombre}</Text>
+            </View>
+          ) : null}
         </View>
 
         <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
@@ -99,16 +148,16 @@ export default function SedesScreen({ navigation }: Props) {
                 .map((item) => {
                   const imageSource = getSedeImage(item.nombre);
                   return (
-                    <Pressable 
-                      key={item.id} 
+                    <Pressable
+                      key={item.id}
                       style={({ pressed }) => [
                         styles.cardWrapper,
                         pressed && styles.cardPressed
                       ]}
-                    onPress={() => navigation.navigate('SedeTabs', { sedeId: item.id, sedeNombre: item.nombre })}
+                      onPress={() => navigation.navigate('SedeTabs', { sedeId: item.id, sedeNombre: item.nombre })}
                     >
-                      <ImageBackground 
-                        source={imageSource!} 
+                      <ImageBackground
+                        source={imageSource!}
                         style={styles.cardImage}
                         imageStyle={styles.cardImageStyle}
                       >
@@ -136,19 +185,24 @@ const styles = StyleSheet.create({
     paddingBottom: 24,
     paddingHorizontal: 24,
   },
-  headerSubtitle: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#10B981',
-    letterSpacing: 2,
-    marginBottom: 8,
-    textTransform: 'uppercase',
-  },
   headerTitle: {
     fontSize: 32,
-    fontWeight: '900',
-    color: '#FFFFFF',
+    fontWeight: '700',
+    color: '#000000',
     letterSpacing: -0.5,
+  },
+  procesoContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  procesoIcon: {
+    marginRight: 6,
+  },
+  procesoText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#374151',
   },
   scrollContent: {
     paddingHorizontal: 24,

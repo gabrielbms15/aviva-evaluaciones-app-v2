@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   StyleSheet,
   Text,
@@ -14,6 +15,7 @@ import { supabase } from '../../supabase';
 import type { ColaboradoresParamList } from '../navigation/types';
 import ScreenLayout from '../components/ScreenLayout';
 import { colors } from '../theme/colors';
+import { getUpssIcon } from './UpssScreen';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Circle } from 'react-native-svg';
@@ -29,7 +31,8 @@ type EstadoPantalla =
   | 'no_proceso'   // no hay proceso activo para esta sede
   | 'confirmar'    // mostrar datos del personal + botón Iniciar Evaluación
   | 'iniciando'    // creando registros en BD (o cargando evaluación existente)
-  | 'evaluando';   // formulario de sets y preguntas
+  | 'evaluando'    // formulario de sets y preguntas
+  | 'terminado';   // evaluación completada
 
 type ValorRespuesta = 'SI' | 'NO' | 'NA';
 
@@ -37,6 +40,7 @@ interface Pregunta {
   id: string;
   texto: string;
   orden: number;
+  respuesta_esperada?: string | null;
 }
 
 interface SetConPreguntas {
@@ -50,6 +54,8 @@ interface EvaluacionSetLocal {
   id: string;          // evaluacion_set.id en BD
   set_id: string;
   estado: string;
+  observacion?: string | null;
+  evaluador_iniciales?: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -75,13 +81,14 @@ const shortName = (formattedFullName: string) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function EvaluacionScreen({ route, navigation }: Props) {
-  const { personalId, personalNombre, cargo, upssNombre, sedeId } = route.params;
+  const { personalId, personalNombre, cargo, upssNombre, sedeId, sedeNombre } = route.params;
 
   // Estado de la máquina de estados de la pantalla
   const [estado, setEstado] = useState<EstadoPantalla>('loading');
 
   // IDs obtenidos en la fase de verificación
   const [procesoId, setProcesoId] = useState<string | null>(null);
+  const [procesoNombre, setProcesoNombre] = useState<string | null>(null);
   const [evaluacionPersonalId, setEvaluacionPersonalId] = useState<string | null>(null);
 
   // Datos del formulario de evaluación
@@ -93,6 +100,29 @@ export default function EvaluacionScreen({ route, navigation }: Props) {
   const [respuestas, setRespuestas] = useState<Record<string, ValorRespuesta>>({});
   const [guardando, setGuardando] = useState(false);
   const [debugMsg, setDebugMsg] = useState('Iniciando montado');
+  const [evaluador, setEvaluador] = useState<{ id: string; iniciales: string } | null>(null);
+
+  useEffect(() => {
+    const fetchEvaluador = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: profile } = await supabase
+          .from('evaluador_perfil')
+          .select('id, nombre, apellido')
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+        if (profile) {
+          const n = profile.nombre || '';
+          const a = profile.apellido || '';
+          let iniciales = `${n.charAt(0)}${a.charAt(0)}`.toUpperCase();
+          if (!iniciales) iniciales = 'XX';
+          setEvaluador({ id: profile.id, iniciales });
+        }
+      }
+    };
+    fetchEvaluador();
+  }, []);
 
   // ─────────────────────────────────────────────────────────────────────────
   // FUNCIONES DE CARGA (Definidas antes del useEffect para evitar problemas de hoisting)
@@ -102,7 +132,7 @@ export default function EvaluacionScreen({ route, navigation }: Props) {
   const cargarSetsConPreguntas = useCallback(async () => {
     const { data, error } = await supabase
       .from('set_preguntas')
-      .select('id, nombre, orden, pregunta(id, texto, orden, activa)')
+      .select('id, nombre, orden, pregunta(id, texto, orden, activa, respuesta_esperada)')
       .eq('activo', true)
       .order('orden');
 
@@ -130,11 +160,35 @@ export default function EvaluacionScreen({ route, navigation }: Props) {
       // Cargar los evaluacion_set existentes
       const { data: evSets, error: errEvSets } = await supabase
         .from('evaluacion_set')
-        .select('id, set_id, estado')
+        .select(`
+          id,
+          set_id,
+          estado,
+          observacion,
+          evaluador_perfil (nombre, apellido)
+        `)
         .eq('evaluacion_personal_id', epId);
 
       if (errEvSets) throw errEvSets;
-      setEvaluacionSets((evSets ?? []) as EvaluacionSetLocal[]);
+
+      const formattedEvSets = (evSets ?? []).map((es: any) => {
+        let iniciales = 'XX';
+        if (es.evaluador_perfil) {
+          const n = es.evaluador_perfil.nombre || '';
+          const a = es.evaluador_perfil.apellido || '';
+          iniciales = `${n.charAt(0)}${a.charAt(0)}`.toUpperCase();
+          if (!iniciales) iniciales = 'XX';
+        }
+        return {
+          id: es.id,
+          set_id: es.set_id,
+          estado: es.estado,
+          observacion: es.observacion ?? null,
+          evaluador_iniciales: iniciales,
+        };
+      });
+
+      setEvaluacionSets(formattedEvSets);
 
       // Cargar las respuestas ya guardadas
       const evSetIds = (evSets ?? []).map((es: any) => es.id);
@@ -158,7 +212,7 @@ export default function EvaluacionScreen({ route, navigation }: Props) {
       // Cargar sets con preguntas
       const { data, error } = await supabase
         .from('set_preguntas')
-        .select('id, nombre, orden, pregunta(id, texto, orden, activa)')
+        .select('id, nombre, orden, pregunta(id, texto, orden, activa, respuesta_esperada)')
         .eq('activo', true)
         .order('orden');
 
@@ -194,78 +248,81 @@ export default function EvaluacionScreen({ route, navigation }: Props) {
   // FASE 1: Verificar proceso activo y evaluación previa
   // ─────────────────────────────────────────────────────────────────────────
 
-  useEffect(() => {
-    let mounted = true;
+  useFocusEffect(
+    useCallback(() => {
+      let mounted = true;
 
-    const verificar = async () => {
-      // Resetear estados al cambiar de personal
-      setEstado('loading');
-      setDebugMsg('[verificar] Iniciando...');
-      setProcesoId(null);
-      setEvaluacionPersonalId(null);
-      setSetsConPreguntas([]);
-      setEvaluacionSets([]);
-      setRespuestas({});
-      setCurrentSetIndex(0);
+      const verificar = async () => {
+        // Resetear estados al cambiar de personal
+        setEstado('loading');
+        setDebugMsg('[verificar] Iniciando...');
+        setProcesoId(null);
+        setEvaluacionPersonalId(null);
+        setSetsConPreguntas([]);
+        setEvaluacionSets([]);
+        setRespuestas({});
+        setCurrentSetIndex(0);
 
-      try {
-        setDebugMsg('[verificar] Consultando proceso_prevalencia...');
-        const { data: procesos, error: errProceso } = await supabase
-          .from('proceso_prevalencia')
-          .select('id')
-          .eq('sede_id', sedeId)
-          .eq('estado', 'activo')
-          .limit(1);
+        try {
+          setDebugMsg('[verificar] Consultando proceso_prevalencia...');
+          const { data: procesos, error: errProceso } = await supabase
+            .from('proceso_prevalencia')
+            .select('id, nombre')
+            .eq('sede_id', sedeId)
+            .eq('estado', 'activo')
+            .limit(1);
 
-        if (errProceso) throw errProceso;
+          if (errProceso) throw errProceso;
 
-        if (!mounted) return;
+          if (!mounted) return;
 
-        if (!procesos || procesos.length === 0) {
-          setEstado('no_proceso');
-          return;
+          if (!procesos || procesos.length === 0) {
+            setEstado('no_proceso');
+            return;
+          }
+
+          const pid = procesos[0].id;
+          setProcesoId(pid);
+          setProcesoNombre(procesos[0].nombre);
+          setDebugMsg(`[verificar] Proceso activo encontrado: ${pid}. Consultando evaluacion_personal...`);
+
+          const { data: evalExistente, error: errEval } = await supabase
+            .from('evaluacion_personal')
+            .select('id')
+            .eq('personal_id', personalId)
+            .eq('proceso_id', pid);
+
+          if (errEval) throw errEval;
+
+          if (!mounted) return;
+
+          if (evalExistente && evalExistente.length > 0) {
+            setDebugMsg(`[verificar] Evaluación existente encontrada: ${evalExistente[0].id}. Cargando detalles...`);
+            const epId = evalExistente[0].id;
+            setEvaluacionPersonalId(epId);
+            await cargarEvaluacionExistente(epId);
+            return;
+          }
+
+          setDebugMsg('[verificar] Nueva evaluación. Esperando confirmación.');
+          setEstado('confirmar');
+        } catch (err: any) {
+          console.error('Error en verificación:', err);
+          setDebugMsg(`[verificar] ERROR: ${err.message}`);
+          if (mounted) {
+            Alert.alert('Error', err.message || 'Error al verificar el proceso activo.');
+            navigation.goBack();
+          }
         }
+      };
 
-        const pid = procesos[0].id;
-        setProcesoId(pid);
-        setDebugMsg(`[verificar] Proceso activo encontrado: ${pid}. Consultando evaluacion_personal...`);
+      verificar();
 
-        const { data: evalExistente, error: errEval } = await supabase
-          .from('evaluacion_personal')
-          .select('id')
-          .eq('personal_id', personalId)
-          .eq('proceso_id', pid);
-
-        if (errEval) throw errEval;
-
-        if (!mounted) return;
-
-        if (evalExistente && evalExistente.length > 0) {
-          setDebugMsg(`[verificar] Evaluación existente encontrada: ${evalExistente[0].id}. Cargando detalles...`);
-          const epId = evalExistente[0].id;
-          setEvaluacionPersonalId(epId);
-          await cargarEvaluacionExistente(epId);
-          return;
-        }
-
-        setDebugMsg('[verificar] Nueva evaluación. Esperando confirmación.');
-        setEstado('confirmar');
-      } catch (err: any) {
-        console.error('Error en verificación:', err);
-        setDebugMsg(`[verificar] ERROR: ${err.message}`);
-        if (mounted) {
-          Alert.alert('Error', err.message || 'Error al verificar el proceso activo.');
-          navigation.goBack();
-        }
-      }
-    };
-
-    verificar();
-
-    return () => {
-      mounted = false;
-    };
-  }, [personalId, sedeId, cargarEvaluacionExistente, navigation]);
+      return () => {
+        mounted = false;
+      };
+    }, [personalId, sedeId, cargarEvaluacionExistente, navigation])
+  );
 
   // ─────────────────────────────────────────────────────────────────────────
   // FASE 2: Iniciar evaluación (crear registros en BD)
@@ -371,9 +428,14 @@ export default function EvaluacionScreen({ route, navigation }: Props) {
       if (errResp) throw errResp;
 
       // 3b. Marcar el evaluacion_set como completado
+      const updatePayload: any = { estado: 'completado', fecha_fin: new Date().toISOString() };
+      if (evaluador?.id) {
+        updatePayload.evaluador_id = evaluador.id;
+      }
+
       const { error: errUpdate } = await supabase
         .from('evaluacion_set')
-        .update({ estado: 'completado', fecha_fin: new Date().toISOString() })
+        .update(updatePayload)
         .eq('id', currentEvSet.id);
 
       if (errUpdate) throw errUpdate;
@@ -381,13 +443,13 @@ export default function EvaluacionScreen({ route, navigation }: Props) {
       // Actualizar el estado local del evaluacion_set
       setEvaluacionSets(prev =>
         prev.map(es =>
-          es.id === currentEvSet.id ? { ...es, estado: 'completado' } : es
+          es.id === currentEvSet.id ? { ...es, estado: 'completado', evaluador_iniciales: evaluador?.iniciales || 'XX' } : es
         )
       );
 
       // Avanzar al siguiente set pendiente, o mostrar confirmación si todos están completados
       const updatedSets = evaluacionSets.map(es =>
-        es.id === currentEvSet.id ? { ...es, estado: 'completado' } : es
+        es.id === currentEvSet.id ? { ...es, estado: 'completado', evaluador_iniciales: evaluador?.iniciales || 'XX' } : es
       );
       const nextPendienteIdx = updatedSets.findIndex(es => es.estado === 'pendiente');
       if (nextPendienteIdx >= 0) {
@@ -415,12 +477,6 @@ export default function EvaluacionScreen({ route, navigation }: Props) {
           <Text style={styles.loadingText}>
             {estado === 'iniciando' ? 'Iniciando evaluación...' : 'Verificando...'}
           </Text>
-          <Text style={{ color: '#FCD34D', marginTop: 16, textAlign: 'center', paddingHorizontal: 20, fontSize: 12 }}>
-            Debug: {debugMsg}
-          </Text>
-          <Pressable style={[styles.btnSecondary, { marginTop: 20 }]} onPress={() => navigation.goBack()}>
-            <Text style={styles.btnSecondaryText}>Retroceder (Debug)</Text>
-          </Pressable>
         </View>
       </ScreenLayout>
     );
@@ -452,17 +508,47 @@ export default function EvaluacionScreen({ route, navigation }: Props) {
       <ScreenLayout>
         <View style={styles.container}>
           <View style={styles.header}>
-            <Text style={styles.headerSubtitle}>INICIAR EVALUACIÓN</Text>
+            <Text style={styles.headerSubtitle}>Iniciar Evaluación</Text>
           </View>
 
           <View style={styles.personalCard}>
             <Text style={styles.personalNombre}>{personalNombre}</Text>
+            
             {cargo ? (
-              <Text style={styles.personalCargo}>{capitalize(cargo)}</Text>
+              <View style={styles.infoRow}>
+                <Ionicons name="briefcase" size={20} color={colors.azul1Aviva} style={styles.infoIcon as any} />
+                <Text style={styles.infoText}>
+                  <Text style={{ fontWeight: '700' }}>Cargo: </Text>
+                  {capitalize(cargo)}
+                </Text>
+              </View>
             ) : null}
-            <View style={styles.upssChip}>
-              <Text style={styles.upssChipText}>{upssNombre}</Text>
+
+            <View style={styles.infoRow}>
+              <Ionicons name={getUpssIcon(upssNombre) as any} size={20} color={colors.azul1AvivaLight} style={styles.infoIcon as any} />
+              <Text style={styles.infoText}>
+                <Text style={{ fontWeight: '700' }}>UPSS: </Text>
+                {upssNombre}
+              </Text>
             </View>
+
+            <View style={styles.infoRow}>
+              <Ionicons name="business" size={20} color={colors.verde1Aviva} style={styles.infoIcon as any} />
+              <Text style={styles.infoText}>
+                <Text style={{ fontWeight: '700' }}>Sede: </Text>
+                {sedeNombre}
+              </Text>
+            </View>
+
+            {procesoNombre ? (
+              <View style={styles.infoRow}>
+                <Ionicons name="calendar" size={20} color={colors.verde1AvivaLight} style={styles.infoIcon as any} />
+                <Text style={styles.infoText}>
+                  <Text style={{ fontWeight: '700' }}>Proceso: </Text>
+                  {procesoNombre}
+                </Text>
+              </View>
+            ) : null}
           </View>
 
           <Text style={styles.confirmarLabel}>
@@ -491,13 +577,16 @@ export default function EvaluacionScreen({ route, navigation }: Props) {
   if (estado === 'terminado') {
     return (
       <ScreenLayout>
-        <View style={styles.centered}>
-          <Text style={{ fontSize: 60, marginBottom: 20 }}>✅</Text>
-          <Text style={styles.errorTitle}>Evaluación Completada</Text>
-          <Text style={styles.errorBody}>
-            Se han guardado todas las respuestas para {personalNombre}.
+        <View style={styles.terminadoContainer}>
+          <View style={styles.terminadoTitleRow}>
+            <Ionicons name="checkmark-circle" size={28} color={colors.verde1AvivaLight} style={{ marginRight: 8 }} />
+            <Text style={styles.terminadoTitle}>Evaluación Completada</Text>
+          </View>
+          <Text style={styles.terminadoBody}>
+            Se han guardado todas las respuestas para:{'\n'}
+            <Text style={{ fontWeight: '900', color: '#111827' }}>{personalNombre}</Text>
           </Text>
-          <Pressable style={styles.btnPrimary} onPress={() => navigation.goBack()}>
+          <Pressable style={styles.btnVolver} onPress={() => navigation.goBack()}>
             <Text style={styles.btnPrimaryText}>Volver</Text>
           </Pressable>
         </View>
@@ -570,95 +659,120 @@ export default function EvaluacionScreen({ route, navigation }: Props) {
           </View>
         </View>
 
-        {/* ── Tarjeta 2: Info del Set de Preguntas ── */}
-        <View style={styles.cardContainer}>
-          <View style={styles.setInfoRow}>
-            <View style={styles.setIconCircle}>
-              <Ionicons name={getSetIcon(currentSet?.nombre || '') as any} size={24} color="#FFFFFF" />
-            </View>
-
-            <View style={styles.setTextContainer}>
-              <Text style={styles.setNombre} numberOfLines={2}>{currentSet?.nombre}</Text>
-            </View>
-
-            <View style={styles.progressCircleContainer}>
-              <Svg width={progressSize} height={progressSize} style={{ position: 'absolute' }}>
-                <Circle
-                  stroke="#E5E7EB"
-                  fill="transparent"
-                  cx={progressSize / 2}
-                  cy={progressSize / 2}
-                  r={progressRadius}
-                  strokeWidth={progressStrokeWidth}
-                />
-                {progresoCompletado > 0 && (
-                  <Circle
-                    stroke={colors.verde1Aviva}
-                    fill={progresoCompletado === totalSets ? colors.verde1Aviva : "transparent"}
-                    cx={progressSize / 2}
-                    cy={progressSize / 2}
-                    r={progressRadius}
-                    strokeWidth={progressStrokeWidth}
-                    strokeDasharray={`${progressCircumference} ${progressCircumference}`}
-                    strokeDashoffset={progresoCompletado === totalSets ? 0 : progressDashoffset}
-                    strokeLinecap="round"
-                    transform={`rotate(-90 ${progressSize / 2} ${progressSize / 2})`}
-                  />
-                )}
-              </Svg>
-              <Text style={[styles.progressText, progresoCompletado === totalSets && { color: '#FFFFFF' }]}>
-                {progresoCompletado}/{totalSets}
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.setNavControls}>
-            <View style={[styles.estadoChip, setCompletado ? styles.estadoChipCompleto : styles.estadoChipPendiente]}>
-              <Text style={[styles.estadoChipText, { color: setCompletado ? colors.verde1Aviva : '#F59E0B' }]}>
-                {setCompletado ? '✓ Completado' : '● En proceso'}
-              </Text>
-            </View>
-
-            <View style={styles.navArrowsWrapper}>
-              <Pressable
-                style={({ pressed }) => [styles.setNavBtn, currentSetIndex === 0 && styles.setNavBtnDisabled, pressed && { opacity: 0.7 }]}
-                onPress={() => setCurrentSetIndex(i => i - 1)}
-                disabled={currentSetIndex === 0}
-              >
-                <Text style={styles.setNavArrow}>‹</Text>
-              </Pressable>
-
-              <Text style={styles.navSetIndexText}>{currentSetIndex + 1}/{totalSets}</Text>
-
-              <Pressable
-                style={({ pressed }) => [styles.setNavBtn, currentSetIndex === totalSets - 1 && styles.setNavBtnDisabled, pressed && { opacity: 0.7 }]}
-                onPress={() => setCurrentSetIndex(i => i + 1)}
-                disabled={currentSetIndex === totalSets - 1}
-              >
-                <Text style={styles.setNavArrow}>›</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-
-        {/* ── Tarjeta 3: Contenedor de Preguntas ── */}
+        {/* ── ScrollView para Tarjeta 2 y Tarjeta 3 ── */}
         <ScrollView
           style={styles.preguntasScroll}
           contentContainerStyle={styles.preguntasScrollContent}
           showsVerticalScrollIndicator={false}
         >
+          {/* ── Tarjeta 2: Info del Set de Preguntas ── */}
+          <View style={styles.cardContainer}>
+            <View style={styles.setInfoRow}>
+              <View style={styles.setIconCircle}>
+                <Ionicons name={getSetIcon(currentSet?.nombre || '') as any} size={24} color="#FFFFFF" />
+              </View>
+
+              <View style={styles.setTextContainer}>
+                <Text style={styles.setNombre} numberOfLines={2}>{currentSet?.nombre}</Text>
+              </View>
+
+              <View style={styles.progressCircleContainer}>
+                <Svg width={progressSize} height={progressSize} style={{ position: 'absolute' }}>
+                  <Circle
+                    stroke="#E5E7EB"
+                    fill="transparent"
+                    cx={progressSize / 2}
+                    cy={progressSize / 2}
+                    r={progressRadius}
+                    strokeWidth={progressStrokeWidth}
+                  />
+                  {progresoCompletado > 0 && (
+                    <Circle
+                      stroke={colors.verde1Aviva}
+                      fill={progresoCompletado === totalSets ? colors.verde1Aviva : "transparent"}
+                      cx={progressSize / 2}
+                      cy={progressSize / 2}
+                      r={progressRadius}
+                      strokeWidth={progressStrokeWidth}
+                      strokeDasharray={`${progressCircumference} ${progressCircumference}`}
+                      strokeDashoffset={progresoCompletado === totalSets ? 0 : progressDashoffset}
+                      strokeLinecap="round"
+                      transform={`rotate(-90 ${progressSize / 2} ${progressSize / 2})`}
+                    />
+                  )}
+                </Svg>
+                <Text style={[styles.progressText, progresoCompletado === totalSets && { color: '#FFFFFF' }]}>
+                  {progresoCompletado}/{totalSets}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.setNavControls}>
+              <View style={styles.estadoRow}>
+                <View style={[styles.estadoChip, setCompletado ? styles.estadoChipCompleto : styles.estadoChipPendiente]}>
+                  <Text style={[styles.estadoChipText, { color: setCompletado ? colors.verde1Aviva : '#F59E0B' }]}>
+                    {setCompletado ? '✓ Completado' : '● En proceso'}
+                  </Text>
+                </View>
+                {setCompletado && (
+                  <View style={styles.evaluadorInicialesChip}>
+                    <Text style={styles.evaluadorInicialesText}>
+                      {currentEvSet?.evaluador_iniciales || 'XX'}
+                    </Text>
+                  </View>
+                )}
+              </View>
+
+              <View style={styles.navArrowsWrapper}>
+                <Pressable
+                  style={({ pressed }) => [styles.setNavBtn, currentSetIndex === 0 && styles.setNavBtnDisabled, pressed && { opacity: 0.7 }]}
+                  onPress={() => setCurrentSetIndex(i => i - 1)}
+                  disabled={currentSetIndex === 0}
+                >
+                  <Text style={styles.setNavArrow}>‹</Text>
+                </Pressable>
+
+                <Text style={styles.navSetIndexText}>{currentSetIndex + 1}/{totalSets}</Text>
+
+                <Pressable
+                  style={({ pressed }) => [styles.setNavBtn, currentSetIndex === totalSets - 1 && styles.setNavBtnDisabled, pressed && { opacity: 0.7 }]}
+                  onPress={() => setCurrentSetIndex(i => i + 1)}
+                  disabled={currentSetIndex === totalSets - 1}
+                >
+                  <Text style={styles.setNavArrow}>›</Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+
+          {/* ── Tarjeta 3: Contenedor de Preguntas ── */}
           <View style={[styles.cardContainer, styles.preguntasContainer]}>
             {currentSet?.preguntas.map((pregunta, idx) => {
               const valorActual = respuestas[pregunta.id];
               const isLastItem = idx === currentSet.preguntas.length - 1;
               return (
                 <View key={pregunta.id} style={styles.preguntaBlock}>
-                  {/* Pregunta Texto */}
+                  {/* Pregunta Texto + Botón Info */}
                   <View style={styles.preguntaHeader}>
                     <View style={styles.preguntaNumCircle}>
                       <Text style={styles.preguntaNumText}>{idx + 1}</Text>
                     </View>
-                    <Text style={styles.preguntaTexto}>{pregunta.texto}</Text>
+                    <Text style={[styles.preguntaTexto, { flex: 1 }]}>{pregunta.texto}</Text>
+                    <Pressable
+                      onPress={() =>
+                        Alert.alert(
+                          'Respuesta Esperada',
+                          pregunta.respuesta_esperada?.trim()
+                            ? pregunta.respuesta_esperada
+                            : 'Esta pregunta no cuenta con respuesta registrada.',
+                          [{ text: 'Cerrar' }]
+                        )
+                      }
+                      style={({ pressed }) => [styles.infoBtn, pressed && { opacity: 0.5 }]}
+                      hitSlop={8}
+                    >
+                      <Ionicons name="information-circle-outline" size={20} color={colors.azul1AvivaLight} />
+                    </Pressable>
                   </View>
 
                   {/* Botones de Respuesta */}
@@ -698,8 +812,39 @@ export default function EvaluacionScreen({ route, navigation }: Props) {
             })}
           </View>
 
-          {/* ── Botón Guardar Respuestas ── */}
-          {!setCompletado && (
+          {/* ── Observación del Set ── */}
+          {currentEvSet?.observacion ? (
+            <View style={styles.observacionCard}>
+              <View style={styles.observacionTitleRow}>
+                <Ionicons name="chatbubble-ellipses-outline" size={16} color={colors.azul1AvivaLight} />
+                <Text style={styles.observacionTitle}>Observación del evaluador</Text>
+              </View>
+              <Text style={styles.observacionText}>{currentEvSet.observacion}</Text>
+            </View>
+          ) : null}
+
+          {/* ── Botón Guardar Respuestas / Tarjeta de Cumplimiento ── */}
+          {setCompletado ? (() => {
+            const preguntas = currentSet?.preguntas ?? [];
+            const totalSI = preguntas.filter(p => respuestas[p.id] === 'SI').length;
+            const totalNO = preguntas.filter(p => respuestas[p.id] === 'NO').length;
+            const base = totalSI + totalNO;
+            const pct = base === 0 ? 0 : Math.round((totalSI / base) * 100);
+            const pctColor = pct >= 80 ? colors.verde1Aviva : pct >= 60 ? '#F59E0B' : '#EF4444';
+            return (
+              <View style={styles.cumplimientoCard}>
+                <View style={styles.cumplimientoLeft}>
+                  <Text style={styles.cumplimientoLabel}>Cumplimiento del set</Text>
+                  <Text style={styles.cumplimientoSub}>
+                    {totalSI} SI · {totalNO} NO · {preguntas.length - base} NA
+                  </Text>
+                </View>
+                <View style={[styles.cumplimientoBadge, { borderColor: pctColor }]}>
+                  <Text style={[styles.cumplimientoPct, { color: pctColor }]}>{pct}%</Text>
+                </View>
+              </View>
+            );
+          })() : (
             <Pressable
               style={({ pressed }) => [styles.btnGuardar, pressed && { opacity: 0.8 }, guardando && { opacity: 0.6 }]}
               onPress={guardarRespuestas}
@@ -739,11 +884,49 @@ const styles = StyleSheet.create({
   errorTitle: { fontSize: 22, fontWeight: '800', color: '#1F2937', marginBottom: 8, textAlign: 'center' },
   errorBody: { fontSize: 15, color: '#6B7280', textAlign: 'center', lineHeight: 22, marginBottom: 32 },
 
+  // Terminado
+  terminadoContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'flex-start',
+    padding: 24,
+  },
+  terminadoTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  terminadoTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#1F2937',
+    textAlign: 'left',
+  },
+  terminadoBody: {
+    fontSize: 15,
+    color: '#6B7280',
+    textAlign: 'left',
+    lineHeight: 24,
+    marginBottom: 32,
+  },
+  btnVolver: {
+    backgroundColor: colors.verde1Aviva,
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 40,
+    alignItems: 'center',
+    shadowColor: colors.verde1Aviva,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+    elevation: 6,
+  },
+
   // Header Confirmar
   header: { paddingTop: 8, paddingHorizontal: 8, paddingBottom: 8 },
   headerSubtitle: {
-    fontSize: 12, fontWeight: '800', color: colors.verde1Aviva,
-    letterSpacing: 2, textTransform: 'uppercase',
+    fontSize: 22, fontWeight: '800', color: '#000000',
+    letterSpacing: 0,
   },
 
   // Confirmar
@@ -758,16 +941,22 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 2,
   },
-  personalNombre: { fontSize: 22, fontWeight: '800', color: '#1F2937', marginBottom: 6 },
-  personalCargo: { fontSize: 15, color: '#6B7280', marginBottom: 12 },
-  upssChip: {
-    alignSelf: 'flex-start',
-    backgroundColor: 'rgba(93, 202, 165, 0.15)',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 4,
+  personalNombre: { fontSize: 22, fontWeight: '800', color: '#1F2937', marginBottom: 16 },
+  infoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
   },
-  upssChipText: { color: colors.verde1Aviva, fontWeight: '700', fontSize: 13 },
+  infoIcon: {
+    marginRight: 8,
+    width: 24,
+    textAlign: 'center',
+  },
+  infoText: {
+    fontSize: 15,
+    color: '#374151',
+    flex: 1,
+  },
   confirmarLabel: {
     color: '#6B7280', fontSize: 15, textAlign: 'center',
     paddingHorizontal: 24, marginBottom: 24, marginTop: 16,
@@ -905,6 +1094,24 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#F3F4F6',
   },
+  estadoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  evaluadorInicialesChip: {
+    backgroundColor: '#F3F4F6',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  evaluadorInicialesText: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#6B7280',
+  },
   navArrowsWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -924,7 +1131,7 @@ const styles = StyleSheet.create({
 
   // Tarjeta 3: Preguntas
   preguntasScroll: { flex: 1 },
-  preguntasScrollContent: { paddingBottom: 24 },
+  preguntasScrollContent: { paddingBottom: 120 },
   preguntasContainer: {
     paddingHorizontal: 0,
     paddingVertical: 8,
@@ -1007,5 +1214,81 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
   btnGuardarText: { color: '#FFFFFF', fontWeight: '800', fontSize: 17 },
+
+  // Cumplimiento card (reemplaza botón guardar en sets completados)
+  cumplimientoCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 16,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  cumplimientoLeft: { flex: 1, marginRight: 12 },
+  cumplimientoLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#374151',
+    marginBottom: 4,
+  },
+  cumplimientoSub: {
+    fontSize: 12,
+    color: '#9CA3AF',
+  },
+  cumplimientoBadge: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    borderWidth: 3,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F9FAFB',
+  },
+  cumplimientoPct: {
+    fontSize: 18,
+    fontWeight: '900',
+  },
+
+  // Info button en pregunta
+  infoBtn: {
+    paddingLeft: 8,
+    alignSelf: 'flex-start',
+  },
+
+  // Observación del set
+  observacionCard: {
+    marginTop: 8,
+    backgroundColor: '#EFF6FF',
+    borderRadius: 14,
+    padding: 14,
+    borderLeftWidth: 3,
+    borderLeftColor: colors.azul1AvivaLight,
+  },
+  observacionTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 6,
+  },
+  observacionTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.azul1Aviva,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  observacionText: {
+    fontSize: 14,
+    color: '#374151',
+    lineHeight: 20,
+  },
 });
 

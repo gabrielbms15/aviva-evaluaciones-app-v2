@@ -1,6 +1,8 @@
 export const colors = {
   azul1Aviva: '#16698B',
   azul1AvivaLight: '#3a9ab2',
+  azulOscuroAviva: '#2b3f64',
+  lightBlue1Aviva: '#9acffd',
   verde1Aviva: '#5dcaa5',
   verde1AvivaLight: '#9fe1cb',
 

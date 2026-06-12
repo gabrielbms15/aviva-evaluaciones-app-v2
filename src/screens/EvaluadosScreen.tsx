@@ -11,6 +11,8 @@ import { StatusBar } from 'expo-status-bar';
 import { supabase } from '../../supabase';
 import type { ColaboradoresParamList } from '../navigation/types';
 import ScreenLayout from '../components/ScreenLayout';
+import { Ionicons } from '@expo/vector-icons';
+import { colors } from '../theme/colors';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TIPOS
@@ -150,20 +152,24 @@ export default function EvaluadosScreen({ sedeId, sedeNombre, onNavigateToEvalua
         style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
         onPress={() => handleCardPress(item)}
       >
-        <View style={styles.cardLeft}>
-          <View style={styles.indexBadge}>
-            <Text style={styles.indexText}>{index + 1}</Text>
-          </View>
-        </View>
         <View style={styles.cardBody}>
           <Text style={styles.cardName}>{formatName(item.nombre_completo)}</Text>
-          {item.cargo ? (
-            <Text style={styles.cardCargo}>{capitalize(item.cargo)}</Text>
-          ) : null}
+          
+          <View style={styles.infoRow}>
+            <Ionicons name="briefcase" size={14} color={colors.azul1AvivaLight} />
+            <Text style={styles.infoText} numberOfLines={2}>
+              <Text style={styles.boldLabel}>Cargo:</Text> {item.cargo ? capitalize(item.cargo) : '-'}
+            </Text>
+          </View>
+          
+          <View style={styles.infoRow}>
+            <Ionicons name="business" size={14} color={colors.verde1AvivaLight} />
+            <Text style={styles.infoText} numberOfLines={2}>
+              <Text style={styles.boldLabel}>Área:</Text> {item.upss_nombre ? capitalize(item.upss_nombre) : '-'}
+            </Text>
+          </View>
+
           <View style={styles.badgeRow}>
-            <View style={styles.upssBadge}>
-              <Text style={styles.upssBadgeText}>{item.upss_nombre}</Text>
-            </View>
             {item.total_sets > 0 && (
               <View style={[styles.setsBadge, completo ? styles.setsBadgeCompleto : styles.setsBadgePendiente]}>
                 <Text style={[styles.setsBadgeText, completo ? styles.setsBadgeTextCompleto : styles.setsBadgeTextPendiente]}>
@@ -187,10 +193,18 @@ export default function EvaluadosScreen({ sedeId, sedeNombre, onNavigateToEvalua
     <ScreenLayout>
       <View style={styles.container}>
         <View style={styles.header}>
-          <Text style={styles.headerSubtitle}>SEDE {sedeNombre}</Text>
           <Text style={styles.headerTitle}>Evaluados</Text>
+          
+          <View style={styles.headerRow}>
+            <Ionicons name="location" size={14} color={colors.verde1Aviva} />
+            <Text style={styles.headerSubtitle}>{capitalize(`Sede ${sedeNombre}`)}</Text>
+          </View>
+          
           {procesoNombre ? (
-            <Text style={styles.procesoLabel}>{procesoNombre}</Text>
+            <View style={styles.headerRow}>
+              <Ionicons name="calendar" size={14} color="#6B7280" />
+              <Text style={styles.procesoLabel}>{procesoNombre}</Text>
+            </View>
           ) : null}
         </View>
 
@@ -241,68 +255,56 @@ export default function EvaluadosScreen({ sedeId, sedeNombre, onNavigateToEvalua
 const styles = StyleSheet.create({
   container: { flex: 1 },
   header: { paddingTop: 16, paddingHorizontal: 24, paddingBottom: 16 },
-  headerSubtitle: {
-    fontSize: 12, fontWeight: '800', color: '#10B981',
-    letterSpacing: 2, marginBottom: 6, textTransform: 'uppercase',
-  },
-  headerTitle: { fontSize: 28, fontWeight: '900', color: '#FFFFFF', letterSpacing: -0.5 },
-  procesoLabel: { fontSize: 13, color: '#6B7280', marginTop: 4 },
-  listContent: { paddingHorizontal: 24, paddingBottom: 40, gap: 12 },
+  headerTitle: { fontSize: 28, fontWeight: '900', color: colors.azulOscuroAviva, letterSpacing: -0.5 },
+  headerRow: { flexDirection: 'row', alignItems: 'center', marginTop: 6, gap: 6 },
+  headerSubtitle: { fontSize: 13, fontWeight: '800', color: colors.verde1Aviva },
+  procesoLabel: { fontSize: 13, color: '#6B7280', fontWeight: '600' },
+  listContent: { paddingHorizontal: 24, paddingBottom: 120, gap: 12 },
   countRow: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8,
   },
-  countText: { color: '#6B7280', fontSize: 13 },
+  countText: { color: '#6B7280', fontSize: 13, fontWeight: '500' },
   refreshBtn: { padding: 4 },
-  refreshText: { color: '#10B981', fontSize: 13, fontWeight: '600' },
+  refreshText: { color: colors.verde1Aviva, fontSize: 13, fontWeight: '700' },
 
   card: {
-    backgroundColor: '#1C1C24', borderRadius: 16, borderWidth: 1, borderColor: '#2D2D38',
+    backgroundColor: '#FFFFFF', borderRadius: 20,
     flexDirection: 'row', alignItems: 'center', padding: 16, gap: 12,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05, shadowRadius: 8, elevation: 2,
+    marginBottom: 4,
   },
   cardPressed: { opacity: 0.7, transform: [{ scale: 0.98 }] },
-  cardLeft: {},
   cardBody: { flex: 1 },
   cardRight: { justifyContent: 'center' },
 
-  indexBadge: {
-    width: 32, height: 32, borderRadius: 10,
-    backgroundColor: '#12121A', borderWidth: 1, borderColor: '#374151',
-    justifyContent: 'center', alignItems: 'center',
-  },
-  indexText: { color: '#6B7280', fontSize: 13, fontWeight: '700' },
-
-  cardName: { fontSize: 16, fontWeight: '700', color: '#FFFFFF', marginBottom: 2 },
-  cardCargo: { fontSize: 13, color: '#9CA3AF', marginBottom: 8 },
-  badgeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  upssBadge: {
-    alignSelf: 'flex-start',
-    backgroundColor: 'rgba(16,185,129,0.1)',
-    borderRadius: 6, paddingHorizontal: 8, paddingVertical: 2,
-    borderWidth: 1, borderColor: 'rgba(16,185,129,0.25)',
-  },
-  upssBadgeText: { color: '#10B981', fontSize: 11, fontWeight: '700' },
+  cardName: { fontSize: 16, fontWeight: '800', color: '#1F2937', marginBottom: 6 },
+  infoRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4, gap: 6 },
+  infoText: { fontSize: 13, color: '#1F2937', flexShrink: 1 },
+  boldLabel: { fontWeight: '800' },
+  badgeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 },
 
   setsBadge: {
-    alignSelf: 'flex-start', borderRadius: 6,
-    paddingHorizontal: 8, paddingVertical: 2, borderWidth: 1,
+    alignSelf: 'flex-start', borderRadius: 8,
+    paddingHorizontal: 10, paddingVertical: 4,
   },
   setsBadgeCompleto: {
-    backgroundColor: 'rgba(16,185,129,0.1)', borderColor: 'rgba(16,185,129,0.3)',
+    backgroundColor: 'rgba(93, 202, 165, 0.15)',
   },
   setsBadgePendiente: {
-    backgroundColor: 'rgba(245,158,11,0.1)', borderColor: 'rgba(245,158,11,0.3)',
+    backgroundColor: 'rgba(245,158,11,0.15)',
   },
-  setsBadgeText: { fontSize: 11, fontWeight: '700' },
-  setsBadgeTextCompleto: { color: '#10B981' },
+  setsBadgeText: { fontSize: 11, fontWeight: '800' },
+  setsBadgeTextCompleto: { color: colors.verde1Aviva },
   setsBadgeTextPendiente: { color: '#F59E0B' },
 
-  chevron: { fontSize: 26, color: '#4B5563', lineHeight: 30 },
+  chevron: { fontSize: 26, color: colors.verde1Aviva, lineHeight: 30, fontWeight: '300' },
   chevronPendiente: { color: '#F59E0B' },
 
   emptyContainer: {
     flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32,
   },
   emptyIcon: { fontSize: 48, marginBottom: 16 },
-  emptyTitle: { fontSize: 20, fontWeight: '800', color: '#FFFFFF', marginBottom: 8 },
-  emptyBody: { fontSize: 14, color: '#9CA3AF', textAlign: 'center', lineHeight: 20 },
+  emptyTitle: { fontSize: 20, fontWeight: '800', color: '#1F2937', marginBottom: 8 },
+  emptyBody: { fontSize: 14, color: '#6B7280', textAlign: 'center', lineHeight: 20 },
 });
