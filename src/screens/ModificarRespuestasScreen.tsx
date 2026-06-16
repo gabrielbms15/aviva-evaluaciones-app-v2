@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -49,6 +50,7 @@ export default function ModificarRespuestasScreen({ onBack }: Props) {
   const [loadingInit, setLoadingInit] = useState(true);
   const [loadingPreguntas, setLoadingPreguntas] = useState(false);
   const [guardando, setGuardando] = useState(false);
+  const [pickerVisible, setPickerVisible] = useState(false); // controla el bottom-sheet selector de set
 
   // ─── Carga inicial: sets ────────────────────────────────────────────────
   useEffect(() => {
@@ -154,20 +156,7 @@ export default function ModificarRespuestasScreen({ onBack }: Props) {
         {/* ── Selector de set ── */}
         <Pressable
           style={({ pressed }) => [styles.setSelector, pressed && { opacity: 0.7 }]}
-          onPress={() =>
-            Alert.alert(
-              'Seleccionar set',
-              undefined,
-              [
-                ...sets.map((s, idx) => ({
-                  text: s.nombre,
-                  onPress: () => setSelectedSetIdx(idx),
-                  style: idx === selectedSetIdx ? 'destructive' as const : 'default' as const,
-                })),
-                { text: 'Cancelar', style: 'cancel' as const },
-              ]
-            )
-          }
+          onPress={() => setPickerVisible(true)}
         >
           <View style={styles.setSelectorLeft}>
             <Ionicons name="list-outline" size={18} color={colors.azul1Aviva} />
@@ -240,6 +229,43 @@ export default function ModificarRespuestasScreen({ onBack }: Props) {
         )}
 
       </KeyboardAvoidingView>
+
+      {/* ══ Bottom-sheet: Selector de set ══ */}
+      <Modal
+        visible={pickerVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setPickerVisible(false)}
+      >
+        <Pressable
+          style={styles.pickerOverlay}
+          onPress={() => setPickerVisible(false)}
+        >
+          <Pressable style={styles.pickerSheet} onPress={() => {}}>
+            <Text style={styles.pickerTitle}>Seleccionar set</Text>
+            <ScrollView showsVerticalScrollIndicator keyboardShouldPersistTaps="handled">
+              {sets.map((s, idx) => (
+                <Pressable
+                  key={s.id}
+                  style={[styles.pickerItem, idx === selectedSetIdx && styles.pickerItemSelected]}
+                  onPress={() => {
+                    setSelectedSetIdx(idx);
+                    setPickerVisible(false);
+                  }}
+                >
+                  <Text style={[styles.pickerItemText, idx === selectedSetIdx && styles.pickerItemTextSelected]}>
+                    {s.nombre}
+                  </Text>
+                  {idx === selectedSetIdx && (
+                    <Text style={styles.pickerCheck}>✓</Text>
+                  )}
+                </Pressable>
+              ))}
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
     </ScreenLayout>
   );
 }
@@ -380,4 +406,43 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
   btnGuardarText: { color: '#FFFFFF', fontWeight: '800', fontSize: 16 },
+
+  // ── Picker bottom-sheet ──
+  pickerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  pickerSheet: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderWidth: 1,
+    borderBottomWidth: 0,
+    borderColor: '#E5E7EB',
+    maxHeight: '60%',
+    paddingBottom: 24,
+  },
+  pickerTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#1F2937',
+    textAlign: 'center',
+    paddingVertical: 18,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  pickerItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 24,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  pickerItemSelected: { backgroundColor: 'rgba(93, 202, 165, 0.1)' },
+  pickerItemText: { color: '#374151', fontSize: 16 },
+  pickerItemTextSelected: { color: colors.verde1Aviva, fontWeight: '700' },
+  pickerCheck: { color: colors.verde1Aviva, fontSize: 18, fontWeight: '700' },
 });

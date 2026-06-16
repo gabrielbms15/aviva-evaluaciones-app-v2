@@ -213,7 +213,7 @@ export default function SearchPersonalScreen({ route, navigation }: Props) {
 
   // ── Modal Añadir Personal ──
   const [modalVisible, setModalVisible] = useState(false);
-  const [grupoPicker, setGrupoPicker] = useState(false); // ya no se usa — mantenido por compatibilidad
+  const [grupoPicker, setGrupoPicker] = useState(false); // controla el modal selector de grupo profesional
   const [nuevoNombre, setNuevoNombre] = useState('');
   const [nuevoCargo, setNuevoCargo] = useState('');
   const [selectedGrupo, setSelectedGrupo] = useState<GrupoProfesional | null>(null);
@@ -573,19 +573,7 @@ export default function SearchPersonalScreen({ route, navigation }: Props) {
               <Text style={styles.fieldLabel}>Grupo Profesional *</Text>
               <Pressable
                 style={({ pressed }) => [styles.fieldSelector, pressed && { opacity: 0.7 }]}
-                onPress={() =>
-                  Alert.alert(
-                    'Grupo Profesional',
-                    'Selecciona el grupo profesional:',
-                    [
-                      ...grupoProfesionalList.map(g => ({
-                        text: (selectedGrupo?.id === g.id ? '✓ ' : '') + g.nombre,
-                        onPress: () => setSelectedGrupo(g),
-                      })),
-                      { text: 'Cancelar', style: 'cancel' as const },
-                    ]
-                  )
-                }
+                onPress={() => setGrupoPicker(true)}
               >
                 <Text style={selectedGrupo ? styles.fieldSelectorValue : styles.fieldSelectorPlaceholder}>
                   {selectedGrupo ? selectedGrupo.nombre : 'Seleccionar grupo...'}
@@ -617,6 +605,51 @@ export default function SearchPersonalScreen({ route, navigation }: Props) {
         </KeyboardAvoidingView>
       </Modal>
 
+      {/* ══════════════════════════════════════════════════════════════
+          MODAL: Selector de Grupo Profesional
+      ══════════════════════════════════════════════════════════════ */}
+      <Modal
+        visible={grupoPicker}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setGrupoPicker(false)}
+      >
+        <Pressable
+          style={styles.modalOverlay}
+          onPress={() => setGrupoPicker(false)}
+        >
+          <Pressable style={styles.pickerSheet} onPress={() => {}}>
+            <Text style={styles.pickerTitle}>Grupo Profesional</Text>
+            <ScrollView
+              showsVerticalScrollIndicator
+              keyboardShouldPersistTaps="handled"
+            >
+              {grupoProfesionalList.map(g => (
+                <Pressable
+                  key={g.id}
+                  style={[styles.pickerItem, selectedGrupo?.id === g.id && styles.pickerItemSelected]}
+                  onPress={() => {
+                    setSelectedGrupo(g);
+                    setGrupoPicker(false);
+                  }}
+                >
+                  <Text
+                    style={[
+                      styles.pickerItemText,
+                      selectedGrupo?.id === g.id && styles.pickerItemTextSelected,
+                    ]}
+                  >
+                    {g.nombre}
+                  </Text>
+                  {selectedGrupo?.id === g.id && (
+                    <Text style={styles.pickerCheck}>✓</Text>
+                  )}
+                </Pressable>
+              ))}
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
     </ScreenLayout>
   );

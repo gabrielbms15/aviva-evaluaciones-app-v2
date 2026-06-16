@@ -3,6 +3,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import {
   StyleSheet,
   Text,
+  TextInput,
   View,
   ScrollView,
   ActivityIndicator,
@@ -98,6 +99,7 @@ export default function EvaluacionScreen({ route, navigation }: Props) {
 
   // Respuestas locales: { [pregunta_id]: 'SI' | 'NO' | 'NA' }
   const [respuestas, setRespuestas] = useState<Record<string, ValorRespuesta>>({});
+  const [observacion, setObservacion] = useState(''); // observación del set actual
   const [guardando, setGuardando] = useState(false);
   const [debugMsg, setDebugMsg] = useState('Iniciando montado');
   const [evaluador, setEvaluador] = useState<{ id: string; iniciales: string } | null>(null);
@@ -428,7 +430,11 @@ export default function EvaluacionScreen({ route, navigation }: Props) {
       if (errResp) throw errResp;
 
       // 3b. Marcar el evaluacion_set como completado
-      const updatePayload: any = { estado: 'completado', fecha_fin: new Date().toISOString() };
+      const updatePayload: any = {
+        estado: 'completado',
+        fecha_fin: new Date().toISOString(),
+        observacion: observacion.trim() || null,
+      };
       if (evaluador?.id) {
         updatePayload.evaluador_id = evaluador.id;
       }
@@ -443,13 +449,19 @@ export default function EvaluacionScreen({ route, navigation }: Props) {
       // Actualizar el estado local del evaluacion_set
       setEvaluacionSets(prev =>
         prev.map(es =>
-          es.id === currentEvSet.id ? { ...es, estado: 'completado', evaluador_iniciales: evaluador?.iniciales || 'XX' } : es
+          es.id === currentEvSet.id
+            ? { ...es, estado: 'completado', evaluador_iniciales: evaluador?.iniciales || 'XX', observacion: observacion.trim() || null }
+            : es
         )
       );
 
+      setObservacion(''); // limpiar para el siguiente set
+
       // Avanzar al siguiente set pendiente, o mostrar confirmación si todos están completados
       const updatedSets = evaluacionSets.map(es =>
-        es.id === currentEvSet.id ? { ...es, estado: 'completado', evaluador_iniciales: evaluador?.iniciales || 'XX' } : es
+        es.id === currentEvSet.id
+          ? { ...es, estado: 'completado', evaluador_iniciales: evaluador?.iniciales || 'XX' }
+          : es
       );
       const nextPendienteIdx = updatedSets.findIndex(es => es.estado === 'pendiente');
       if (nextPendienteIdx >= 0) {
@@ -845,17 +857,40 @@ export default function EvaluacionScreen({ route, navigation }: Props) {
               </View>
             );
           })() : (
-            <Pressable
-              style={({ pressed }) => [styles.btnGuardar, pressed && { opacity: 0.8 }, guardando && { opacity: 0.6 }]}
-              onPress={guardarRespuestas}
-              disabled={guardando}
-            >
-              {guardando ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.btnGuardarText}>Guardar Respuestas</Text>
-              )}
-            </Pressable>
+            <>
+              {/* Campo de observación */}
+              <View style={styles.observacionInputCard}>
+                <View style={styles.observacionInputHeader}>
+                  <Ionicons name="chatbubble-ellipses-outline" size={16} color={colors.azul1AvivaLight} />
+                  <Text style={styles.observacionInputLabel}>Observación (opcional)</Text>
+                </View>
+                <TextInput
+                  style={styles.observacionInput}
+                  value={observacion}
+                  onChangeText={setObservacion}
+                  placeholder="Escribe una observación sobre este set…"
+                  placeholderTextColor="#C4C4CC"
+                  multiline
+                  textAlignVertical="top"
+                  maxLength={500}
+                />
+                {observacion.length > 0 && (
+                  <Text style={styles.observacionCounter}>{observacion.length}/500</Text>
+                )}
+              </View>
+
+              <Pressable
+                style={({ pressed }) => [styles.btnGuardar, pressed && { opacity: 0.8 }, guardando && { opacity: 0.6 }]}
+                onPress={guardarRespuestas}
+                disabled={guardando}
+              >
+                {guardando ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.btnGuardarText}>Guardar Respuestas</Text>
+                )}
+              </Pressable>
+            </>
           )}
 
           <View style={{ height: 40 }} />
@@ -1289,6 +1324,53 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#374151',
     lineHeight: 20,
+  },
+
+  // Observación editable (antes de guardar)
+  observacionInputCard: {
+    marginTop: 8,
+    marginBottom: 10,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  observacionInputHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 10,
+  },
+  observacionInputLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.azul1AvivaLight,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  observacionInput: {
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: '#1F2937',
+    minHeight: 80,
+    lineHeight: 20,
+  },
+  observacionCounter: {
+    fontSize: 11,
+    color: '#9CA3AF',
+    textAlign: 'right',
+    marginTop: 4,
   },
 });
 

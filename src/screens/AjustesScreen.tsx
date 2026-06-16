@@ -10,6 +10,7 @@ import ScreenLayout from '../components/ScreenLayout';
 import { colors } from '../theme/colors';
 import ModificarRespuestasScreen from './ModificarRespuestasScreen';
 import ModificarPreguntasScreen from './ModificarPreguntasScreen';
+import EditarPreguntasScreen from './EditarPreguntasScreen';
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -21,7 +22,7 @@ interface Props {
 // Opciones del menú de Ajustes
 // ─────────────────────────────────────────────────────────────────────────────
 
-type SubPantalla = null | 'modificar_respuestas' | 'modificar_preguntas';
+type SubPantalla = null | 'modificar_respuestas' | 'modificar_preguntas' | 'editar_preguntas';
 
 const OPCIONES: {
   key: SubPantalla;
@@ -41,6 +42,12 @@ const OPCIONES: {
     description: 'Edita el texto de cada pregunta por set.',
     icon: 'list-outline',
   },
+  {
+    key: 'editar_preguntas',
+    label: 'Editar preguntas',
+    description: 'Añade o elimina preguntas de cada set. Restaura preguntas inactivas.',
+    icon: 'pencil-outline',
+  },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -54,6 +61,9 @@ export default function AjustesScreen({ sedeNombre }: Props) {
   }
   if (subPantalla === 'modificar_preguntas') {
     return <ModificarPreguntasScreen onBack={() => setSubPantalla(null)} />;
+  }
+  if (subPantalla === 'editar_preguntas') {
+    return <EditarPreguntasScreen onBack={() => setSubPantalla(null)} />;
   }
 
   // ── Menú principal ──
