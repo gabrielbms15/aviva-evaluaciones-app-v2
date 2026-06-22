@@ -31,8 +31,10 @@ interface PersonalEvaluado {
   evaluacion_id: string;
   personal_id: string;
   nombre_completo: string;
-  cargo: string | null;
+  upss_id: string;
   upss_nombre: string;
+  grupo_profesional_id: string;
+  grupo_profesional_nombre: string;
   sets_pendientes: number;
   total_sets: number;
 }
@@ -98,8 +100,10 @@ export default function EvaluadosScreen({ sedeId, sedeNombre, onNavigateToEvalua
           personal:personal_id(
             id,
             nombre_completo,
-            cargo,
-            upss:upss_id(nombre)
+            upss_id,
+            upss:upss_id(nombre),
+            grupo_profesional_id,
+            grupo_profesional:grupo_profesional_id(nombre)
           ),
           evaluacion_set(estado)
         `)
@@ -114,8 +118,10 @@ export default function EvaluadosScreen({ sedeId, sedeNombre, onNavigateToEvalua
           evaluacion_id: row.id,
           personal_id: row.personal?.id ?? '',
           nombre_completo: row.personal?.nombre_completo ?? '',
-          cargo: row.personal?.cargo ?? null,
+          upss_id: row.personal?.upss_id ?? '',
           upss_nombre: row.personal?.upss?.nombre ?? '—',
+          grupo_profesional_id: row.personal?.grupo_profesional_id ?? '',
+          grupo_profesional_nombre: row.personal?.grupo_profesional?.nombre ?? '',
           sets_pendientes: sets.filter(s => s.estado === 'pendiente').length,
           total_sets: sets.length,
         };
@@ -138,7 +144,9 @@ export default function EvaluadosScreen({ sedeId, sedeNombre, onNavigateToEvalua
     onNavigateToEvaluacion({
       personalId: item.personal_id,
       personalNombre: formatName(item.nombre_completo),
-      cargo: item.cargo,
+      grupoProfesionalId: item.grupo_profesional_id,
+      grupoProfesionalNombre: item.grupo_profesional_nombre,
+      upssId: item.upss_id,
       upssNombre: item.upss_nombre,
       sedeId,
       sedeNombre,
@@ -156,9 +164,9 @@ export default function EvaluadosScreen({ sedeId, sedeNombre, onNavigateToEvalua
           <Text style={styles.cardName}>{formatName(item.nombre_completo)}</Text>
           
           <View style={styles.infoRow}>
-            <Ionicons name="briefcase" size={14} color={colors.azul1AvivaLight} />
+            <Ionicons name="people-outline" size={14} color={colors.azul1AvivaLight} />
             <Text style={styles.infoText} numberOfLines={2}>
-              <Text style={styles.boldLabel}>Cargo:</Text> {item.cargo ? capitalize(item.cargo) : '-'}
+              <Text style={styles.boldLabel}>Grupo:</Text> {item.grupo_profesional_nombre ? capitalize(item.grupo_profesional_nombre) : '-'}
             </Text>
           </View>
           

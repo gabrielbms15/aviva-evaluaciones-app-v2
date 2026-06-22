@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   StyleSheet,
   Text,
@@ -31,6 +32,9 @@ interface PersonalItem {
   id: string;
   nombre_completo: string;
   cargo: string | null;
+  grupo_profesional_id: string;
+  grupo_profesional_nombre: string;
+  upss_id: string;
 }
 
 interface GrupoProfesional {
@@ -229,14 +233,22 @@ export default function SearchPersonalScreen({ route, navigation }: Props) {
     try {
       const { data, error } = await supabase
         .from('personal_prevalencia')
-        .select('id, nombre_completo, cargo')
+        .select('id, nombre_completo, cargo, grupo_profesional_id, upss_id, grupo_profesional:grupo_profesional_id(nombre)')
         .eq('sede_id', sedeId)
         .eq('upss_id', upssId)
         .eq('activo', true)
         .order('nombre_completo', { ascending: true });
 
       if (error) throw error;
-      setFullPersonalList(data ?? []);
+      const mapped = (data ?? []).map((row: any) => ({
+        id: row.id,
+        nombre_completo: row.nombre_completo,
+        cargo: row.cargo ?? null,
+        grupo_profesional_id: row.grupo_profesional_id ?? '',
+        grupo_profesional_nombre: row.grupo_profesional?.nombre ?? '',
+        upss_id: row.upss_id ?? '',
+      }));
+      setFullPersonalList(mapped);
     } catch (err: any) {
       setErrorMsg(err.message || 'Error al obtener el personal');
     } finally {
@@ -244,9 +256,12 @@ export default function SearchPersonalScreen({ route, navigation }: Props) {
     }
   }, [sedeId, upssId]);
 
-  useEffect(() => {
-    fetchPersonal();
-  }, [fetchPersonal]);
+  // Refetch al entrar/volver a la pantalla (cubre ediciones y eliminaciones desde EvaluacionScreen)
+  useFocusEffect(
+    useCallback(() => {
+      fetchPersonal();
+    }, [fetchPersonal])
+  );
 
   useEffect(() => {
     supabase
@@ -380,7 +395,9 @@ export default function SearchPersonalScreen({ route, navigation }: Props) {
           navigation.navigate('Evaluacion', {
             personalId: cell.id,
             personalNombre: formattedFull,
-            cargo: cell.cargo,
+            grupoProfesionalId: cell.grupo_profesional_id,
+            grupoProfesionalNombre: cell.grupo_profesional_nombre,
+            upssId: cell.upss_id,
             upssNombre,
             sedeId,
             sedeNombre,
@@ -415,7 +432,9 @@ export default function SearchPersonalScreen({ route, navigation }: Props) {
         navigation.navigate('Evaluacion', {
           personalId: item.id,
           personalNombre: formatName(item.nombre_completo),
-          cargo: item.cargo,
+          grupoProfesionalId: item.grupo_profesional_id,
+          grupoProfesionalNombre: item.grupo_profesional_nombre,
+          upssId: item.upss_id,
           upssNombre,
           sedeId,
           sedeNombre,
@@ -438,7 +457,13 @@ export default function SearchPersonalScreen({ route, navigation }: Props) {
 
         {/* ── Header ── */}
         <View style={styles.header}>
-          <Text style={styles.headerTitle}>Personal</Text>
+          <View style={styles.headerTitleRow}>
+            <Text style={styles.headerTitle}>Personal</Text>
+            <Pressable onPress={fetchPersonal} style={styles.refreshBtn} hitSlop={8}>
+              <Ionicons name="refresh-outline" size={18} color={colors.verde1Aviva} />
+              <Text style={styles.refreshBtnText}>Actualizar</Text>
+            </Pressable>
+          </View>
           <View style={styles.sedeRow}>
             <Ionicons name="location-sharp" size={16} color="#4B5563" style={styles.headerIcon} />
             <Text style={styles.headerSubtitle}>
@@ -667,12 +692,33 @@ const styles = StyleSheet.create({
     paddingBottom: 16,
     paddingHorizontal: 24,
   },
+  headerTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
   headerTitle: {
     fontSize: 28,
     fontWeight: '900',
     color: '#000000',
     letterSpacing: -0.5,
-    marginBottom: 6,
+  },
+  refreshBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    backgroundColor: 'rgba(93, 202, 165, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(93, 202, 165, 0.3)',
+  },
+  refreshBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.verde1Aviva,
   },
   sedeRow: {
     flexDirection: 'row',

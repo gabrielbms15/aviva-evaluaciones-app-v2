@@ -9,6 +9,9 @@ import {
   ActivityIndicator,
   Pressable,
   Alert,
+  Modal,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -63,6 +66,47 @@ interface EvaluacionSetLocal {
 // HELPERS
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** Agrupa tokens con prefijos compuestos tipo "de", "de la", etc. */
+const groupTokens = (tokens: string[]): string[] => {
+  const segments: string[] = [];
+  let i = 0;
+  while (i < tokens.length) {
+    const token = tokens[i];
+    if (token.toLowerCase() === 'de' && i + 1 < tokens.length) {
+      const next = tokens[i + 1];
+      if (next.length <= 3 && i + 2 < tokens.length) {
+        segments.push(`${token} ${next} ${tokens[i + 2]}`);
+        i += 3;
+      } else {
+        segments.push(`${token} ${next}`);
+        i += 2;
+      }
+    } else {
+      segments.push(token);
+      i += 1;
+    }
+  }
+  return segments;
+};
+
+/**
+ * Convierte nombre en orden natural (NOMBRES APELLIDOS) al formato BD (APELLIDOS NOMBRES).
+ * Espeja exactamente la lógica de SearchPersonalScreen.
+ */
+const inputToDbFormat = (input: string): string => {
+  if (!input?.trim()) return '';
+  const tokens = input.trim().toUpperCase().split(/\s+/).filter(Boolean);
+  const segs = groupTokens(tokens);
+  const N = segs.length;
+  if (N === 0) return '';
+  if (N === 1) return segs[0];
+  if (N === 2) return `${segs[1]} ${segs[0]}`;
+  if (N === 3) return `${segs[1]} ${segs[2]} ${segs[0]}`;
+  const nombres = segs.slice(0, 2);
+  const apellidos = segs.slice(2);
+  return [...apellidos, ...nombres].join(' ');
+};
+
 const capitalize = (text: string | null) => {
   if (!text) return '';
   return text.charAt(0).toUpperCase() + text.slice(1).toLowerCase();
@@ -82,7 +126,7 @@ const shortName = (formattedFullName: string) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function EvaluacionScreen({ route, navigation }: Props) {
-  const { personalId, personalNombre, cargo, upssNombre, sedeId, sedeNombre } = route.params;
+  const { personalId, personalNombre, grupoProfesionalId, grupoProfesionalNombre, upssId, upssNombre, sedeId, sedeNombre } = route.params;
 
   // Estado de la máquina de estados de la pantalla
   const [estado, setEstado] = useState<EstadoPantalla>('loading');
@@ -91,6 +135,28 @@ export default function EvaluacionScreen({ route, navigation }: Props) {
   const [procesoId, setProcesoId] = useState<string | null>(null);
   const [procesoNombre, setProcesoNombre] = useState<string | null>(null);
   const [evaluacionPersonalId, setEvaluacionPersonalId] = useState<string | null>(null);
+  const [evaluacionExistente, setEvaluacionExistente] = useState(false);
+
+  // Datos editables del personal (se actualizan tras guardar)
+  const [nombrePersonal, setNombrePersonal] = useState(personalNombre);
+  const [grupoId, setGrupoId] = useState(grupoProfesionalId);
+  const [grupoNombre, setGrupoNombre] = useState(grupoProfesionalNombre);
+  const [upssIdLocal, setUpssIdLocal] = useState(upssId);
+  const [upssNombreLocal, setUpssNombreLocal] = useState(upssNombre);
+
+  // Modal edición
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [editNombre, setEditNombre] = useState('');
+  const [editGrupoId, setEditGrupoId] = useState('');
+  const [editGrupoNombre, setEditGrupoNombre] = useState('');
+  const [editUpssId, setEditUpssId] = useState('');
+  const [editUpssNombre, setEditUpssNombre] = useState('');
+  const [grupoList, setGrupoList] = useState<{ id: string; nombre: string }[]>([]);
+  const [upssList, setUpssList] = useState<{ id: string; nombre: string }[]>([]);
+  const [grupoPicker, setGrupoPicker] = useState(false);
+  const [upssPicker, setUpssPicker] = useState(false);
+  const [guardandoEdit, setGuardandoEdit] = useState(false);
+  const [eliminando, setEliminando] = useState(false);
 
   // Datos del formulario de evaluación
   const [setsConPreguntas, setSetsConPreguntas] = useState<SetConPreguntas[]>([]);
@@ -103,6 +169,80 @@ export default function EvaluacionScreen({ route, navigation }: Props) {
   const [guardando, setGuardando] = useState(false);
   const [debugMsg, setDebugMsg] = useState('Iniciando montado');
   const [evaluador, setEvaluador] = useState<{ id: string; iniciales: string } | null>(null);
+
+  // Cargar catálogos para edición
+  useEffect(() => {
+    supabase.from('grupo_profesional').select('id, nombre').order('nombre')
+      .then(({ data }) => { if (data) setGrupoList(data); });
+    supabase.from('upss').select('id, nombre').order('nombre')
+      .then(({ data }) => { if (data) setUpssList(data); });
+  }, []);
+
+  const abrirEdicion = () => {
+    setEditNombre(nombrePersonal);
+    setEditGrupoId(grupoId);
+    setEditGrupoNombre(grupoNombre);
+    setEditUpssId(upssIdLocal);
+    setEditUpssNombre(upssNombreLocal);
+    setEditModalVisible(true);
+  };
+
+  const guardarEdicion = async () => {
+    if (!editNombre.trim()) {
+      Alert.alert('Campo requerido', 'Ingresa el nombre del personal.');
+      return;
+    }
+    // Convertir del orden display (NOMBRES APELLIDOS) al formato BD (APELLIDOS NOMBRES)
+    const nombreParaBd = inputToDbFormat(editNombre.trim());
+    setGuardandoEdit(true);
+    const { error } = await supabase
+      .from('personal_prevalencia')
+      .update({
+        nombre_completo: nombreParaBd,
+        grupo_profesional_id: editGrupoId,
+        upss_id: editUpssId,
+      })
+      .eq('id', personalId);
+    setGuardandoEdit(false);
+    if (error) {
+      Alert.alert('Error', error.message);
+      return;
+    }
+    // Mantener el nombre en formato display (como lo escribió el usuario)
+    setNombrePersonal(editNombre.trim());
+    setGrupoId(editGrupoId);
+    setGrupoNombre(editGrupoNombre);
+    setUpssIdLocal(editUpssId);
+    setUpssNombreLocal(editUpssNombre);
+    setEditModalVisible(false);
+  };
+
+  const confirmarEliminar = () => {
+    Alert.alert(
+      'Eliminar personal',
+      `¿Deseas eliminar a ${nombrePersonal}? Esta acción no se puede deshacer.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Eliminar',
+          style: 'destructive',
+          onPress: async () => {
+            setEliminando(true);
+            const { error } = await supabase
+              .from('personal_prevalencia')
+              .update({ activo: false })
+              .eq('id', personalId);
+            setEliminando(false);
+            if (error) {
+              Alert.alert('Error', error.message);
+            } else {
+              navigation.goBack();
+            }
+          },
+        },
+      ]
+    );
+  };
 
   useEffect(() => {
     const fetchEvaluador = async () => {
@@ -260,6 +400,7 @@ export default function EvaluacionScreen({ route, navigation }: Props) {
         setDebugMsg('[verificar] Iniciando...');
         setProcesoId(null);
         setEvaluacionPersonalId(null);
+        setEvaluacionExistente(false);
         setSetsConPreguntas([]);
         setEvaluacionSets([]);
         setRespuestas({});
@@ -299,13 +440,15 @@ export default function EvaluacionScreen({ route, navigation }: Props) {
           if (!mounted) return;
 
           if (evalExistente && evalExistente.length > 0) {
-            setDebugMsg(`[verificar] Evaluación existente encontrada: ${evalExistente[0].id}. Cargando detalles...`);
+            setDebugMsg(`[verificar] Evaluación existente encontrada: ${evalExistente[0].id}. Mostrando confirmación...`);
             const epId = evalExistente[0].id;
             setEvaluacionPersonalId(epId);
-            await cargarEvaluacionExistente(epId);
+            setEvaluacionExistente(true);
+            setEstado('confirmar');
             return;
           }
 
+          setEvaluacionExistente(false);
           setDebugMsg('[verificar] Nueva evaluación. Esperando confirmación.');
           setEstado('confirmar');
         } catch (err: any) {
@@ -518,70 +661,222 @@ export default function EvaluacionScreen({ route, navigation }: Props) {
   if (estado === 'confirmar') {
     return (
       <ScreenLayout>
-        <View style={styles.container}>
-          <View style={styles.header}>
-            <Text style={styles.headerSubtitle}>Iniciar Evaluación</Text>
-          </View>
-
-          <View style={styles.personalCard}>
-            <Text style={styles.personalNombre}>{personalNombre}</Text>
-            
-            {cargo ? (
-              <View style={styles.infoRow}>
-                <Ionicons name="briefcase" size={20} color={colors.azul1Aviva} style={styles.infoIcon as any} />
-                <Text style={styles.infoText}>
-                  <Text style={{ fontWeight: '700' }}>Cargo: </Text>
-                  {capitalize(cargo)}
-                </Text>
-              </View>
-            ) : null}
-
-            <View style={styles.infoRow}>
-              <Ionicons name={getUpssIcon(upssNombre) as any} size={20} color={colors.azul1AvivaLight} style={styles.infoIcon as any} />
-              <Text style={styles.infoText}>
-                <Text style={{ fontWeight: '700' }}>UPSS: </Text>
-                {upssNombre}
+        <ScrollView contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled">
+          <View style={styles.container}>
+            <View style={styles.header}>
+              <Text style={styles.headerSubtitle}>
+                {evaluacionExistente ? 'Ver Evaluación' : 'Iniciar Evaluación'}
               </Text>
             </View>
 
-            <View style={styles.infoRow}>
-              <Ionicons name="business" size={20} color={colors.verde1Aviva} style={styles.infoIcon as any} />
-              <Text style={styles.infoText}>
-                <Text style={{ fontWeight: '700' }}>Sede: </Text>
-                {sedeNombre}
-              </Text>
-            </View>
+            <View style={styles.personalCard}>
+              <Text style={styles.personalNombre}>{nombrePersonal}</Text>
 
-            {procesoNombre ? (
               <View style={styles.infoRow}>
-                <Ionicons name="calendar" size={20} color={colors.verde1AvivaLight} style={styles.infoIcon as any} />
+                <Ionicons name="people-outline" size={20} color={colors.azul1Aviva} style={styles.infoIcon as any} />
                 <Text style={styles.infoText}>
-                  <Text style={{ fontWeight: '700' }}>Proceso: </Text>
-                  {procesoNombre}
+                  <Text style={{ fontWeight: '700' }}>Grupo: </Text>
+                  {capitalize(grupoNombre)}
                 </Text>
               </View>
-            ) : null}
-          </View>
 
-          <Text style={styles.confirmarLabel}>
-            ¿Confirmar inicio de evaluación para este personal?
-          </Text>
+              <View style={styles.infoRow}>
+                <Ionicons name={getUpssIcon(upssNombreLocal) as any} size={20} color={colors.azul1AvivaLight} style={styles.infoIcon as any} />
+                <Text style={styles.infoText}>
+                  <Text style={{ fontWeight: '700' }}>UPSS: </Text>
+                  {upssNombreLocal}
+                </Text>
+              </View>
 
-          <View style={styles.btnRow}>
-            <Pressable
-              style={({ pressed }) => [styles.btnSecondary, pressed && { opacity: 0.7 }]}
-              onPress={() => navigation.goBack()}
-            >
-              <Text style={styles.btnSecondaryText}>Retroceder</Text>
-            </Pressable>
-            <Pressable
-              style={({ pressed }) => [styles.btnPrimary, pressed && { opacity: 0.8 }]}
-              onPress={iniciarEvaluacion}
-            >
-              <Text style={styles.btnPrimaryText}>Iniciar Evaluación</Text>
-            </Pressable>
+              <View style={styles.infoRow}>
+                <Ionicons name="business" size={20} color={colors.verde1Aviva} style={styles.infoIcon as any} />
+                <Text style={styles.infoText}>
+                  <Text style={{ fontWeight: '700' }}>Sede: </Text>
+                  {sedeNombre}
+                </Text>
+              </View>
+
+              {procesoNombre ? (
+                <View style={styles.infoRow}>
+                  <Ionicons name="calendar" size={20} color={colors.verde1AvivaLight} style={styles.infoIcon as any} />
+                  <Text style={styles.infoText}>
+                    <Text style={{ fontWeight: '700' }}>Proceso: </Text>
+                    {procesoNombre}
+                  </Text>
+                </View>
+              ) : null}
+
+              {/* Botones editar / eliminar */}
+              <View style={styles.accionesRow}>
+                <Pressable
+                  style={({ pressed }) => [styles.btnAccionEditar, pressed && { opacity: 0.7 }]}
+                  onPress={abrirEdicion}
+                >
+                  <Ionicons name="pencil-outline" size={15} color={colors.azul1Aviva} />
+                  <Text style={styles.btnAccionEditarText}>Editar</Text>
+                </Pressable>
+                <Pressable
+                  style={({ pressed }) => [styles.btnAccionEliminar, pressed && { opacity: 0.7 }, eliminando && { opacity: 0.5 }]}
+                  onPress={confirmarEliminar}
+                  disabled={eliminando}
+                >
+                  {eliminando
+                    ? <ActivityIndicator size="small" color="#EF4444" />
+                    : <>
+                        <Ionicons name="trash-outline" size={15} color="#EF4444" />
+                        <Text style={styles.btnAccionEliminarText}>Eliminar</Text>
+                      </>
+                  }
+                </Pressable>
+              </View>
+            </View>
+
+            <Text style={styles.confirmarLabel}>
+              {evaluacionExistente
+                ? 'La evaluación para este personal ya fue iniciada.'
+                : '¿Confirmar inicio de evaluación para este personal?'}
+            </Text>
+
+            <View style={styles.btnRow}>
+              <Pressable
+                style={({ pressed }) => [styles.btnSecondary, pressed && { opacity: 0.7 }]}
+                onPress={() => navigation.goBack()}
+              >
+                <Text style={styles.btnSecondaryText}>Retroceder</Text>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [styles.btnPrimary, pressed && { opacity: 0.8 }]}
+                onPress={() => {
+                  if (evaluacionExistente && evaluacionPersonalId) {
+                    cargarEvaluacionExistente(evaluacionPersonalId);
+                  } else {
+                    iniciarEvaluacion();
+                  }
+                }}
+              >
+                <Text style={styles.btnPrimaryText}>
+                  {evaluacionExistente ? 'Ver Evaluación' : 'Iniciar Evaluación'}
+                </Text>
+              </Pressable>
+            </View>
           </View>
-        </View>
+        </ScrollView>
+
+        {/* ══ Modal Editar Personal ══ */}
+        <Modal
+          visible={editModalVisible}
+          animationType="slide"
+          transparent
+          onRequestClose={() => setEditModalVisible(false)}
+        >
+          <KeyboardAvoidingView
+            style={styles.modalOverlay}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          >
+            <Pressable style={styles.modalOverlay} onPress={() => setEditModalVisible(false)}>
+              <Pressable style={styles.modalSheet} onPress={() => {}}>
+                {/* Header */}
+                <View style={styles.modalHeader}>
+                  <Text style={styles.modalTitle}>Editar Personal</Text>
+                  <Pressable onPress={() => setEditModalVisible(false)} hitSlop={8}>
+                    <Ionicons name="close" size={22} color="#6B7280" />
+                  </Pressable>
+                </View>
+
+                <ScrollView contentContainerStyle={styles.modalBody} keyboardShouldPersistTaps="handled">
+                  {/* Nombre */}
+                  <Text style={styles.fieldLabel}>Nombres y Apellidos *</Text>
+                  <TextInput
+                    style={styles.fieldInput}
+                    value={editNombre}
+                    onChangeText={setEditNombre}
+                    autoCapitalize="characters"
+                    placeholder="APELLIDO1 APELLIDO2 NOMBRE1 NOMBRE2"
+                    placeholderTextColor="#9CA3AF"
+                  />
+
+                  {/* Grupo Profesional */}
+                  <Text style={styles.fieldLabel}>Grupo Profesional *</Text>
+                  <Pressable
+                    style={({ pressed }) => [styles.fieldSelector, pressed && { opacity: 0.7 }]}
+                    onPress={() => { setGrupoPicker(p => !p); setUpssPicker(false); }}
+                  >
+                    <Text style={editGrupoId ? styles.fieldSelectorValue : styles.fieldSelectorPlaceholder}>
+                      {editGrupoNombre || 'Seleccionar grupo...'}
+                    </Text>
+                    <Ionicons name={grupoPicker ? 'chevron-up' : 'chevron-down'} size={16} color="#9CA3AF" />
+                  </Pressable>
+
+                  {/* Lista inline de grupos */}
+                  {grupoPicker && (
+                    <View style={styles.inlinePickerContainer}>
+                      {grupoList.map(g => (
+                        <Pressable
+                          key={g.id}
+                          style={[styles.pickerItem, editGrupoId === g.id && styles.pickerItemSelected]}
+                          onPress={() => { setEditGrupoId(g.id); setEditGrupoNombre(g.nombre); setGrupoPicker(false); }}
+                        >
+                          <Text style={[styles.pickerItemText, editGrupoId === g.id && styles.pickerItemTextSelected]}>{g.nombre}</Text>
+                          {editGrupoId === g.id && <Ionicons name="checkmark" size={18} color={colors.verde1Aviva} />}
+                        </Pressable>
+                      ))}
+                    </View>
+                  )}
+
+                  {/* UPSS */}
+                  <Text style={styles.fieldLabel}>UPSS *</Text>
+                  <Pressable
+                    style={({ pressed }) => [styles.fieldSelector, pressed && { opacity: 0.7 }]}
+                    onPress={() => { setUpssPicker(p => !p); setGrupoPicker(false); }}
+                  >
+                    <Text style={editUpssId ? styles.fieldSelectorValue : styles.fieldSelectorPlaceholder}>
+                      {editUpssNombre || 'Seleccionar UPSS...'}
+                    </Text>
+                    <Ionicons name={upssPicker ? 'chevron-up' : 'chevron-down'} size={16} color="#9CA3AF" />
+                  </Pressable>
+
+                  {/* Lista inline de UPSS */}
+                  {upssPicker && (
+                    <View style={styles.inlinePickerContainer}>
+                      {upssList.map(u => (
+                        <Pressable
+                          key={u.id}
+                          style={[styles.pickerItem, editUpssId === u.id && styles.pickerItemSelected]}
+                          onPress={() => { setEditUpssId(u.id); setEditUpssNombre(u.nombre); setUpssPicker(false); }}
+                        >
+                          <Text style={[styles.pickerItemText, editUpssId === u.id && styles.pickerItemTextSelected]}>{u.nombre}</Text>
+                          {editUpssId === u.id && <Ionicons name="checkmark" size={18} color={colors.verde1Aviva} />}
+                        </Pressable>
+                      ))}
+                    </View>
+                  )}
+
+                  {/* Botones */}
+                  <View style={styles.modalBtnRow}>
+                    <Pressable
+                      style={({ pressed }) => [styles.modalBtnSecondary, pressed && { opacity: 0.7 }]}
+                      onPress={() => setEditModalVisible(false)}
+                    >
+                      <Text style={styles.modalBtnSecondaryText}>Cancelar</Text>
+                    </Pressable>
+                    <Pressable
+                      style={({ pressed }) => [styles.modalBtnPrimary, pressed && { opacity: 0.8 }, guardandoEdit && { opacity: 0.6 }]}
+                      onPress={guardarEdicion}
+                      disabled={guardandoEdit}
+                    >
+                      {guardandoEdit
+                        ? <ActivityIndicator color="#FFFFFF" size="small" />
+                        : <Text style={styles.modalBtnPrimaryText}>Guardar cambios</Text>
+                      }
+                    </Pressable>
+                  </View>
+                </ScrollView>
+              </Pressable>
+            </Pressable>
+          </KeyboardAvoidingView>
+        </Modal>
+
+
       </ScreenLayout>
     );
   }
@@ -652,19 +947,19 @@ export default function EvaluacionScreen({ route, navigation }: Props) {
             </LinearGradient>
 
             <View style={styles.personalInfoTextContainer}>
-              <Text style={styles.personalInfoName}>{shortName(personalNombre)}</Text>
+              <Text style={styles.personalInfoName}>{shortName(nombrePersonal)}</Text>
 
               <View style={styles.personalInfoDataRow}>
-                <Ionicons name="briefcase" size={14} color={colors.azul1AvivaLight} />
+                <Ionicons name="people-outline" size={14} color={colors.azul1AvivaLight} />
                 <Text style={styles.personalInfoDataText} numberOfLines={2}>
-                  <Text style={styles.boldLabel}>Cargo:</Text> {cargo ? capitalize(cargo) : '-'}
+                  <Text style={styles.boldLabel}>Grupo:</Text> {grupoNombre ? capitalize(grupoNombre) : '-'}
                 </Text>
               </View>
 
               <View style={styles.personalInfoDataRow}>
                 <Ionicons name="location" size={14} color={colors.verde1AvivaLight} />
                 <Text style={styles.personalInfoDataText} numberOfLines={2}>
-                  <Text style={styles.boldLabel}>Área:</Text> {upssNombre ? capitalize(upssNombre) : '-'}
+                  <Text style={styles.boldLabel}>Área:</Text> {upssNombreLocal ? capitalize(upssNombreLocal) : '-'}
                 </Text>
               </View>
             </View>
@@ -1085,7 +1380,183 @@ const styles = StyleSheet.create({
   estadoChipCompleto: { backgroundColor: 'rgba(93, 202, 165, 0.15)' },
   estadoChipText: { fontWeight: '700', fontSize: 10 },
 
-  // Tarjeta 2: Info del Set
+  // Botones acciones (editar / eliminar)
+  accionesRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 16,
+    justifyContent: 'flex-end',
+  },
+  btnAccionEditar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: 'rgba(74, 144, 226, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(74, 144, 226, 0.3)',
+  },
+  btnAccionEditarText: {
+    color: colors.azul1Aviva,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  btnAccionEliminar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FCA5A5',
+  },
+  btnAccionEliminarText: {
+    color: '#EF4444',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+
+  // Modal edición
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalSheet: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: '85%',
+    paddingBottom: 32,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 24,
+    paddingVertical: 18,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#111827',
+  },
+  modalBody: {
+    paddingHorizontal: 24,
+    paddingTop: 16,
+    paddingBottom: 8,
+  },
+  fieldLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.azul1AvivaLight,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 8,
+    marginTop: 12,
+  },
+  fieldInput: {
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 15,
+    color: '#111827',
+  },
+  fieldSelector: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+  },
+  fieldSelectorValue: {
+    fontSize: 15,
+    color: '#111827',
+    flex: 1,
+  },
+  fieldSelectorPlaceholder: {
+    fontSize: 15,
+    color: '#9CA3AF',
+    flex: 1,
+  },
+  modalBtnRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 20,
+  },
+  modalBtnSecondary: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  modalBtnSecondaryText: { color: '#4B5563', fontWeight: '700', fontSize: 15 },
+  modalBtnPrimary: {
+    flex: 2,
+    backgroundColor: colors.verde1Aviva,
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: 'center',
+    shadowColor: colors.verde1Aviva,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  modalBtnPrimaryText: { color: '#FFFFFF', fontWeight: '800', fontSize: 15 },
+
+  // Picker bottom-sheet
+  pickerSheet: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: '60%',
+    paddingBottom: 24,
+  },
+  pickerTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#1F2937',
+    textAlign: 'center',
+    paddingVertical: 18,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  pickerItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 24,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  pickerItemSelected: { backgroundColor: 'rgba(93, 202, 165, 0.1)' },
+  pickerItemText: { color: '#374151', fontSize: 16, flex: 1 },
+  inlinePickerContainer: {
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 12,
+    marginBottom: 4,
+    overflow: 'hidden',
+    backgroundColor: '#F9FAFB',
+  },
+  pickerItemTextSelected: { color: colors.verde1Aviva, fontWeight: '700' },
   setInfoRow: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -18,7 +18,9 @@ export type ColaboradoresParamList = {
   Evaluacion: {
     personalId: string;
     personalNombre: string;
-    cargo: string | null;
+    grupoProfesionalId: string;
+    grupoProfesionalNombre: string;
+    upssId: string;
     upssNombre: string;
     sedeId: string;
     sedeNombre: string;

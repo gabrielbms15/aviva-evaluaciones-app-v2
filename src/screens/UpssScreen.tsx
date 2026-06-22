@@ -95,18 +95,26 @@ export default function UpssScreen({ route, navigation }: Props) {
       setErrorMsg(null);
 
       try {
-        const { data, error } = await supabase
-          .from('personal_prevalencia')
-          .select('id, nombre_completo, cargo, upss_id, upss:upss_id(id, nombre)')
-          .eq('sede_id', sedeId)
-          .eq('activo', true)
-          .order('nombre_completo', { ascending: true });
+        const [personalRes, upssRes] = await Promise.all([
+          supabase
+            .from('personal_prevalencia')
+            .select('id, nombre_completo, cargo, upss_id, upss:upss_id(id, nombre)')
+            .eq('sede_id', sedeId)
+            .eq('activo', true)
+            .order('nombre_completo', { ascending: true }),
+          supabase
+            .from('upss')
+            .select('id, nombre')
+            .eq('activa', true)
+            .order('orden', { ascending: true })
+        ]);
 
-        if (error) throw error;
+        if (personalRes.error) throw personalRes.error;
+        if (upssRes.error) throw upssRes.error;
 
-        if (data) {
+        if (personalRes.data) {
           setFullPersonalList(
-            data.map(r => {
+            personalRes.data.map(r => {
               const upss = r.upss as unknown as { id: string; nombre: string } | null;
               return {
                 id: r.id,
@@ -116,18 +124,10 @@ export default function UpssScreen({ route, navigation }: Props) {
               };
             })
           );
+        }
 
-          const seen = new Set<string>();
-          const unique: UpssItem[] = [];
-          for (const row of data) {
-            const upss = row.upss as unknown as { id: string; nombre: string } | null;
-            if (upss && !seen.has(upss.id)) {
-              seen.add(upss.id);
-              unique.push({ id: upss.id, nombre: upss.nombre });
-            }
-          }
-          unique.sort((a, b) => a.nombre.localeCompare(b.nombre));
-          setUpssList(unique);
+        if (upssRes.data) {
+          setUpssList(upssRes.data.map(u => ({ id: u.id, nombre: u.nombre })));
         }
       } catch (error: any) {
         console.error('Error fetching data:', error);
